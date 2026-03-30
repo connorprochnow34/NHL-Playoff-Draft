@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/nhl/sync",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}

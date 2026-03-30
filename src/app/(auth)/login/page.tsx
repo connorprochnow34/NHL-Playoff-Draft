@@ -99,7 +99,7 @@ export default function LoginPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Sign In</CardTitle>
           <CardDescription>
-            Sign in to your NHL Playoff Draft account
+            Sign in to your Consolation Cup account
           </CardDescription>
         </CardHeader>
         <CardContent>

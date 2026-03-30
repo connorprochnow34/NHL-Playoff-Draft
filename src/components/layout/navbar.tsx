@@ -34,7 +34,7 @@ export function Navbar({ user }: { user: User }) {
     <nav className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         <Link href="/dashboard" className="font-bold text-lg">
-          NHL Playoff <span className="text-primary">Draft</span>
+          Consolation <span className="text-primary">Cup</span>
         </Link>
 
         <DropdownMenu>

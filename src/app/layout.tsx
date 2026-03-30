@@ -6,9 +6,9 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "NHL Playoff Draft",
+  title: "Consolation Cup",
   description:
-    "Draft NHL playoff teams with your friends and compete for points throughout the playoffs.",
+    "Your team's out? Draft playoff teams with your friends and ride the highs of the NHL Playoffs.",
 };
 
 export default function RootLayout({

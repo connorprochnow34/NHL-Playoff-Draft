@@ -76,7 +76,7 @@ export default function SignupPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Create Account</CardTitle>
           <CardDescription>
-            Join the NHL Playoff Draft
+            Join the Consolation Cup
           </CardDescription>
         </CardHeader>
         <CardContent>

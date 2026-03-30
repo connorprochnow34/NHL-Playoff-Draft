@@ -107,19 +107,6 @@ export default async function DashboardPage() {
     );
   }
 
-  // Find opponents for matchups
-  function getOpponent(
-    groupPicks: typeof myPicks,
-    teamId: string,
-    seriesHomeTeamId: string,
-    seriesAwayTeamId: string
-  ) {
-    const opposingTeamId =
-      teamId === seriesHomeTeamId ? seriesAwayTeamId : seriesHomeTeamId;
-    const opponentPick = groupPicks.find((p) => p.teamId === opposingTeamId);
-    return opponentPick;
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -255,25 +242,6 @@ export default async function DashboardPage() {
               {memberships
                 .filter((m) => m.group.draftStatus === "COMPLETED")
                 .map(({ group }) => {
-                  // Calculate standings for this group
-                  const memberPoints = group.members.map((m) => {
-                    const totalPts = group.points
-                      .filter((p) => p.userId === m.userId)
-                      .reduce((sum, p) => sum.pointsAwarded + p.pointsAwarded, { pointsAwarded: 0 } as { pointsAwarded: number });
-                    return {
-                      userId: m.userId,
-                      displayName: m.user.displayName,
-                      totalPoints:
-                        typeof totalPts === "number"
-                          ? totalPts
-                          : totalPts.pointsAwarded,
-                      teamCount: group.picks.filter(
-                        (p) => p.userId === m.userId
-                      ).length,
-                    };
-                  });
-
-                  // Actually compute properly
                   const standings = group.members
                     .map((m) => ({
                       userId: m.userId,

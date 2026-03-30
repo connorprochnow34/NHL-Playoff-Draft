@@ -56,7 +56,6 @@ export function useDraft({
   const [draftStatus, setDraftStatus] = useState(initialDraftStatus);
   const [timeLeft, setTimeLeft] = useState(pickTimerSeconds);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const autoPickRef = useRef<NodeJS.Timeout | null>(null);
 
   // Compute initial current user from picks
   useEffect(() => {
@@ -99,6 +98,7 @@ export function useDraft({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, draftStatus, pickTimerSeconds]);
 
   // Supabase realtime subscription
@@ -132,6 +132,7 @@ export function useDraft({
     return () => {
       supabase.removeChannel(channel);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, pickTimerSeconds]);
 
   const pickedTeamIds = new Set(picks.map((p) => p.teamId));

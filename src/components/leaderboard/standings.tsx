@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { GroupWithMembers, PickWithTeam, PointWithDetails, NhlTeam } from "@/types";
+import type { PickWithTeam, PointWithDetails } from "@/types";
 
 interface StandingsProps {
   group: {

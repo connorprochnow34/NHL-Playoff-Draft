@@ -37,7 +37,7 @@ export function getPickInfo(
  * Each member gets 16/N teams (rounded down for simplicity),
  * but we draft all 16 teams total.
  */
-export function getTotalPicks(totalMembers: number): number {
+export function getTotalPicks(): number {
   return 16; // Always draft all 16 playoff teams
 }
 
@@ -77,7 +77,7 @@ export function validatePick(params: {
 }): { valid: boolean; error?: string } {
   const { currentPickNumber, totalMembers, userId, membersByPosition, pickedTeamIds, teamId } = params;
 
-  const totalPicks = getTotalPicks(totalMembers);
+  const totalPicks = getTotalPicks();
   if (currentPickNumber > totalPicks) {
     return { valid: false, error: "Draft is complete" };
   }

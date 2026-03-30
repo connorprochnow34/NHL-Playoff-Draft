@@ -118,7 +118,7 @@ export async function POST(
   });
 
   // Check if draft is complete
-  const totalPicks = getTotalPicks(totalMembers);
+  const totalPicks = getTotalPicks();
   const newPickNumber = currentPickNumber + 1;
   const isDraftComplete = newPickNumber > totalPicks;
 

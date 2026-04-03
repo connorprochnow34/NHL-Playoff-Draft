@@ -1,17 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 
-const ANGLES = [
-  "roast_last",
-  "hype_first",
-  "absurd_subplot",
-  "fake_headline",
-  "recent_event",
-  "praise_pick",
-] as const;
-
-type ChirpAngle = (typeof ANGLES)[number];
-
 const TONE_LABELS: Record<number, string> = {
   1: "Family friendly — keep it completely clean and playful, safe for any audience",
   2: "Playground rules — gentle teasing, nothing that would make anyone uncomfortable",

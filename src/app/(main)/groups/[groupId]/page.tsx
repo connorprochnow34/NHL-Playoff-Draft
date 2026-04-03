@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Standings } from "@/components/leaderboard/standings";
 import { SeriesFeed } from "@/components/leaderboard/series-feed";
 import { InviteCard } from "@/components/groups/invite-card";
+import { ChirpCard } from "@/components/groups/chirp-card";
 
 export default async function GroupPage({
   params,
@@ -60,6 +61,12 @@ export default async function GroupPage({
   });
 
   if (!group) notFound();
+
+  // Get the latest chirp
+  const latestChirp = await prisma.chirp.findFirst({
+    where: { groupId },
+    orderBy: { generatedAt: "desc" },
+  });
 
   const isCommissioner = group.commissionerId === user.id;
   const isDraftReady =
@@ -153,6 +160,14 @@ export default async function GroupPage({
 
       {group.draftStatus === "COMPLETED" && (
         <>
+          {latestChirp && (
+            <ChirpCard
+              chirp={{
+                text: latestChirp.text,
+                generatedAt: latestChirp.generatedAt.toISOString(),
+              }}
+            />
+          )}
           <Standings group={group} />
           <Separator />
           <SeriesFeed points={group.points} />

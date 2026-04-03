@@ -83,6 +83,8 @@ export async function PATCH(
   if (body.draftNotes !== undefined) updates.draftNotes = body.draftNotes;
   if (body.pickTimerSeconds)
     updates.pickTimerSeconds = Math.min(120, Math.max(30, body.pickTimerSeconds));
+  if (body.chirpTone !== undefined)
+    updates.chirpTone = Math.min(5, Math.max(1, body.chirpTone));
 
   const updated = await prisma.group.update({
     where: { id: groupId },

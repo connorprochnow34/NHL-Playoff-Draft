@@ -27,8 +27,10 @@ export default function GroupSettingsPage() {
   const [draftDate, setDraftDate] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
   const [pickTimer, setPickTimer] = useState(60);
+  const [chirpTone, setChirpTone] = useState(3);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [generatingChirp, setGeneratingChirp] = useState(false);
 
   useEffect(() => {
     fetch(`/api/groups/${groupId}`)
@@ -38,6 +40,7 @@ export default function GroupSettingsPage() {
         setName(data.name);
         setDraftNotes(data.draftNotes || "");
         setPickTimer(data.pickTimerSeconds);
+        setChirpTone(data.chirpTone || 3);
         if (data.draftScheduledAt) {
           setDraftDate(
             new Date(data.draftScheduledAt).toISOString().slice(0, 16)
@@ -56,6 +59,7 @@ export default function GroupSettingsPage() {
         draftScheduledAt: draftDate || null,
         draftNotes: draftNotes || null,
         pickTimerSeconds: pickTimer,
+        chirpTone,
       }),
     });
 
@@ -287,6 +291,61 @@ export default function GroupSettingsPage() {
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Chirp of the Day</CardTitle>
+          <CardDescription>
+            AI-generated daily trash talk for the group
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Chirp Tone: {chirpTone}</Label>
+            <Input
+              type="range"
+              min={1}
+              max={5}
+              step={1}
+              value={chirpTone}
+              onChange={(e) => setChirpTone(Number(e.target.value))}
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+              <span>Family friendly</span>
+              <span>Playground</span>
+              <span>Friend group</span>
+              <span>No mercy</span>
+              <span>Unfiltered</span>
+            </div>
+          </div>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving..." : "Save Tone"}
+          </Button>
+          <Separator />
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={async () => {
+              setGeneratingChirp(true);
+              const res = await fetch("/api/chirp/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ groupId }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                toast.success(data.message || "Chirp generated!");
+              } else {
+                toast.error("Failed to generate chirp");
+              }
+              setGeneratingChirp(false);
+            }}
+            disabled={generatingChirp}
+          >
+            {generatingChirp ? "Generating..." : "Generate Today's Chirp"}
+          </Button>
         </CardContent>
       </Card>
 

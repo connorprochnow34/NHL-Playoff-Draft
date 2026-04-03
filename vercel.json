@@ -3,6 +3,10 @@
     {
       "path": "/api/nhl/sync",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/chirp/generate",
+      "schedule": "0 14 * * *"
     }
   ]
 }

@@ -146,6 +146,11 @@ async function upsertSeries(
   await prisma.series.upsert({
     where: { seriesLetter: s.seriesLetter },
     update: {
+      round: s.playoffRound,
+      homeTeamId: homeTeam.id,
+      awayTeamId: awayTeam.id,
+      homeSeed: s.topSeedRank,
+      awaySeed: s.bottomSeedRank,
       homeWins: s.topSeedWins,
       awayWins: s.bottomSeedWins,
       winnerTeamId: winnerTeam?.id || null,

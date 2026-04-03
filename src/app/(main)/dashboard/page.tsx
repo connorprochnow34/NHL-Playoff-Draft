@@ -274,13 +274,105 @@ export default async function DashboardPage() {
             );
           })}
 
-          {/* Projected playoff seeds */}
-          {playoffTeams.length > 0 && (
+          {/* Projected playoff bracket */}
+          {allSeries.length > 0 ? (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Playoff Seeds</CardTitle>
+                <CardTitle className="text-lg">Projected Bracket</CardTitle>
                 <CardDescription>
-                  The 16 teams available in the draft
+                  First round matchups based on current standings
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  {["Eastern", "Western"].map((conf) => {
+                    // Series A-D are Eastern, E-H are Western
+                    const confLetters =
+                      conf === "Eastern"
+                        ? ["A", "B", "C", "D"]
+                        : ["E", "F", "G", "H"];
+                    const confSeries = allSeries.filter(
+                      (s) =>
+                        s.round === 1 &&
+                        confLetters.includes(s.seriesLetter)
+                    );
+
+                    return (
+                      <div key={conf}>
+                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+                          {conf} Conference
+                        </h3>
+                        <div className="space-y-2">
+                          {confSeries.map((series) => (
+                            <div
+                              key={series.id}
+                              className="flex items-center gap-2 p-2 rounded-lg border border-border"
+                            >
+                              <div className="flex-1 flex items-center gap-2">
+                                <div className="relative w-6 h-6 shrink-0">
+                                  <Image
+                                    src={
+                                      series.homeTeam.darkLogoUrl ||
+                                      series.homeTeam.logoUrl
+                                    }
+                                    alt={series.homeTeam.abbreviation}
+                                    fill
+                                    className="object-contain"
+                                    unoptimized
+                                  />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate">
+                                    {series.homeTeam.name}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    #{series.homeSeed} seed
+                                  </p>
+                                </div>
+                              </div>
+
+                              <span className="text-xs text-muted-foreground font-medium shrink-0">
+                                vs
+                              </span>
+
+                              <div className="flex-1 flex items-center gap-2 justify-end text-right">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate">
+                                    {series.awayTeam.name}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    #{series.awaySeed} seed
+                                  </p>
+                                </div>
+                                <div className="relative w-6 h-6 shrink-0">
+                                  <Image
+                                    src={
+                                      series.awayTeam.darkLogoUrl ||
+                                      series.awayTeam.logoUrl
+                                    }
+                                    alt={series.awayTeam.abbreviation}
+                                    fill
+                                    className="object-contain"
+                                    unoptimized
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ) : playoffTeams.length > 0 ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">Playoff Teams</CardTitle>
+                <CardDescription>
+                  The 16 teams available in the draft. Sync NHL data from
+                  group settings to see projected matchups.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -322,7 +414,7 @@ export default async function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+          ) : null}
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { randomizeDraftOrder, clearDraftOrder } from "@/lib/draft-utils";
 
 // Join a group
 export async function POST(
@@ -19,15 +20,24 @@ export async function POST(
 
   const group = await prisma.group.findUnique({
     where: { id: groupId },
+    include: { _count: { select: { members: true } } },
   });
 
   if (!group) {
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
-  if (group.draftStatus === "COMPLETED") {
+  if (group.draftStatus !== "OPEN") {
     return NextResponse.json(
-      { error: "Draft is completed. Membership is locked." },
+      { error: "This group is not accepting new members" },
+      { status: 400 }
+    );
+  }
+
+  // Check capacity
+  if (group.maxPlayers && group._count.members >= group.maxPlayers) {
+    return NextResponse.json(
+      { error: "This group is full" },
       { status: 400 }
     );
   }
@@ -51,7 +61,19 @@ export async function POST(
     include: { user: true },
   });
 
-  return NextResponse.json(member);
+  // Auto-lock if at capacity
+  const newCount = group._count.members + 1;
+  let autoLocked = false;
+  if (group.maxPlayers && newCount >= group.maxPlayers && newCount >= 2) {
+    await randomizeDraftOrder(groupId);
+    await prisma.group.update({
+      where: { id: groupId },
+      data: { draftStatus: "LOCKED" },
+    });
+    autoLocked = true;
+  }
+
+  return NextResponse.json({ ...member, autoLocked });
 }
 
 // Remove a member (commissioner only, pre-draft)
@@ -77,7 +99,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (group.draftStatus !== "PENDING" && group.draftStatus !== "SCHEDULED") {
+  if (group.draftStatus !== "OPEN" && group.draftStatus !== "LOCKED") {
     return NextResponse.json(
       { error: "Cannot remove members after draft starts" },
       { status: 400 }
@@ -98,6 +120,15 @@ export async function DELETE(
       groupId_userId: { groupId, userId },
     },
   });
+
+  // If group was locked, auto-unlock since draft order is now invalid
+  if (group.draftStatus === "LOCKED") {
+    await clearDraftOrder(groupId);
+    await prisma.group.update({
+      where: { id: groupId },
+      data: { draftStatus: "OPEN" },
+    });
+  }
 
   return NextResponse.json({ success: true });
 }

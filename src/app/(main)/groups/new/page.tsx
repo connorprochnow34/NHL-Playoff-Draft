@@ -17,6 +17,8 @@ import { toast } from "sonner";
 export default function NewGroupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [draftDate, setDraftDate] = useState("");
+  const [maxPlayers, setMaxPlayers] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleCreate(e: React.FormEvent) {
@@ -26,7 +28,11 @@ export default function NewGroupPage() {
     const res = await fetch("/api/groups", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        name,
+        draftScheduledAt: draftDate,
+        maxPlayers: maxPlayers ? parseInt(maxPlayers) : null,
+      }),
     });
 
     if (res.ok) {
@@ -61,6 +67,40 @@ export default function NewGroupPage() {
                 required
                 maxLength={50}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="draftDate">Draft Date & Time</Label>
+              <Input
+                id="draftDate"
+                type="datetime-local"
+                value={draftDate}
+                onChange={(e) => setDraftDate(e.target.value)}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                When will your group draft? You can change this later.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="maxPlayers">
+                Max Players{" "}
+                <span className="text-muted-foreground font-normal">
+                  (optional)
+                </span>
+              </Label>
+              <Input
+                id="maxPlayers"
+                type="number"
+                min={2}
+                max={16}
+                placeholder="e.g. 8"
+                value={maxPlayers}
+                onChange={(e) => setMaxPlayers(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Group auto-locks and draft order randomizes when full. Leave
+                blank for no limit.
+              </p>
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Creating..." : "Create Group"}

@@ -26,6 +26,7 @@ export default function GroupSettingsPage() {
   const [name, setName] = useState("");
   const [draftDate, setDraftDate] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
+  const [maxPlayers, setMaxPlayers] = useState("");
   const [pickTimer, setPickTimer] = useState(60);
   const [chirpTone, setChirpTone] = useState(3);
   const [saving, setSaving] = useState(false);
@@ -41,6 +42,7 @@ export default function GroupSettingsPage() {
         setDraftNotes(data.draftNotes || "");
         setPickTimer(data.pickTimerSeconds);
         setChirpTone(data.chirpTone || 3);
+        setMaxPlayers(data.maxPlayers ? String(data.maxPlayers) : "");
         if (data.draftScheduledAt) {
           setDraftDate(
             new Date(data.draftScheduledAt).toISOString().slice(0, 16)
@@ -60,32 +62,20 @@ export default function GroupSettingsPage() {
         draftNotes: draftNotes || null,
         pickTimerSeconds: pickTimer,
         chirpTone,
+        maxPlayers: maxPlayers ? parseInt(maxPlayers) : null,
       }),
     });
 
     if (res.ok) {
+      const data = await res.json();
+      setGroup(data);
       toast.success("Settings saved");
       router.refresh();
     } else {
-      toast.error("Failed to save settings");
+      const data = await res.json();
+      toast.error(data.error || "Failed to save settings");
     }
     setSaving(false);
-  }
-
-  async function handleRandomize() {
-    const res = await fetch(`/api/groups/${groupId}/draft/randomize`, {
-      method: "POST",
-    });
-
-    if (res.ok) {
-      toast.success("Draft order randomized!");
-      const data = await res.json();
-      setGroup(data);
-      router.refresh();
-    } else {
-      const data = await res.json();
-      toast.error(data.error || "Failed to randomize");
-    }
   }
 
   async function handleStartDraft() {
@@ -123,14 +113,12 @@ export default function GroupSettingsPage() {
 
     if (res.ok) {
       toast.success("Member removed");
-      setGroup((prev) =>
-        prev
-          ? {
-              ...prev,
-              members: prev.members.filter((m) => m.userId !== userId),
-            }
-          : null
-      );
+      // Refresh to get updated state (may have auto-unlocked)
+      const groupRes = await fetch(`/api/groups/${groupId}`);
+      if (groupRes.ok) {
+        setGroup(await groupRes.json());
+      }
+      router.refresh();
     } else {
       const data = await res.json();
       toast.error(data.error || "Failed to remove member");
@@ -151,7 +139,7 @@ export default function GroupSettingsPage() {
     );
   }
 
-  const isDraftLocked =
+  const isDraftStarted =
     group.draftStatus === "IN_PROGRESS" || group.draftStatus === "COMPLETED";
 
   return (
@@ -168,7 +156,7 @@ export default function GroupSettingsPage() {
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              disabled={isDraftLocked}
+              disabled={isDraftStarted}
             />
           </div>
           <Button onClick={handleSave} disabled={saving}>
@@ -177,12 +165,12 @@ export default function GroupSettingsPage() {
         </CardContent>
       </Card>
 
-      {!isDraftLocked && (
+      {!isDraftStarted && (
         <Card>
           <CardHeader>
             <CardTitle>Draft Setup</CardTitle>
             <CardDescription>
-              Configure draft settings before starting
+              Configure draft settings. Lock the group from the group page when ready.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -193,6 +181,25 @@ export default function GroupSettingsPage() {
                 value={draftDate}
                 onChange={(e) => setDraftDate(e.target.value)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Max Players{" "}
+                <span className="text-muted-foreground font-normal">
+                  (optional)
+                </span>
+              </Label>
+              <Input
+                type="number"
+                min={2}
+                max={16}
+                placeholder="No limit"
+                value={maxPlayers}
+                onChange={(e) => setMaxPlayers(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Group auto-locks when this many players join. Leave blank for no limit.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Draft Notes</Label>
@@ -217,50 +224,44 @@ export default function GroupSettingsPage() {
               {saving ? "Saving..." : "Save Draft Settings"}
             </Button>
 
-            <Separator />
-
-            <div className="space-y-3">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleRandomize}
-                disabled={group.members.length < 2}
-              >
-                Randomize Draft Order
-              </Button>
-
-              {group.members.some((m) => m.draftPosition) && (
-                <div className="text-sm space-y-1">
-                  <p className="font-medium">Draft Order:</p>
-                  {group.members
-                    .filter((m) => m.draftPosition)
-                    .sort((a, b) => (a.draftPosition || 0) - (b.draftPosition || 0))
-                    .map((m) => (
-                      <p key={m.id} className="text-muted-foreground">
-                        {m.draftPosition}. {m.user.displayName}
-                      </p>
-                    ))}
-                </div>
-              )}
-
-              <Button
-                className="w-full"
-                onClick={handleStartDraft}
-                disabled={
-                  !group.members.some((m) => m.draftPosition) ||
-                  group.members.length < 2
-                }
-              >
-                Start Draft Now
-              </Button>
-            </div>
+            {group.draftStatus === "LOCKED" && (
+              <>
+                <Separator />
+                {group.members.some((m) => m.draftPosition) && (
+                  <div className="text-sm space-y-1">
+                    <p className="font-medium">Draft Order:</p>
+                    {group.members
+                      .filter((m) => m.draftPosition)
+                      .sort(
+                        (a, b) =>
+                          (a.draftPosition || 0) - (b.draftPosition || 0)
+                      )
+                      .map((m) => (
+                        <p key={m.id} className="text-muted-foreground">
+                          {m.draftPosition}. {m.user.displayName}
+                        </p>
+                      ))}
+                  </div>
+                )}
+                <Button
+                  className="w-full"
+                  onClick={handleStartDraft}
+                  disabled={group.members.length < 2}
+                >
+                  Start Draft Now
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Members ({group.members.length})</CardTitle>
+          <CardTitle>
+            Members ({group.members.length}
+            {group.maxPlayers ? ` of ${group.maxPlayers}` : ""})
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
@@ -277,7 +278,7 @@ export default function GroupSettingsPage() {
                     </span>
                   )}
                 </span>
-                {!isDraftLocked &&
+                {!isDraftStarted &&
                   m.userId !== group.commissionerId && (
                     <Button
                       variant="ghost"

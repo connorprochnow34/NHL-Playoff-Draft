@@ -9,8 +9,8 @@ datasource db {
 }
 
 enum DraftStatus {
-  PENDING
-  SCHEDULED
+  OPEN
+  LOCKED
   IN_PROGRESS
   COMPLETED
 }
@@ -42,7 +42,8 @@ model Group {
   commissionerId   String      @map("commissioner_id") @db.Uuid
   commissioner     User        @relation("commissioner", fields: [commissionerId], references: [id])
   inviteCode       String      @unique @map("invite_code") @db.VarChar(6)
-  draftStatus      DraftStatus @default(PENDING) @map("draft_status")
+  draftStatus      DraftStatus @default(OPEN) @map("draft_status")
+  maxPlayers       Int?        @map("max_players")
   draftScheduledAt DateTime?   @map("draft_scheduled_at")
   draftNotes       String?     @map("draft_notes")
   pickTimerSeconds Int         @default(60) @map("pick_timer_seconds")

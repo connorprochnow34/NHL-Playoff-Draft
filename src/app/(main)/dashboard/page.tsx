@@ -51,8 +51,8 @@ export default async function DashboardPage() {
   // Split groups by draft status
   const preDraftGroups = memberships.filter(
     (m) =>
-      m.group.draftStatus === "PENDING" ||
-      m.group.draftStatus === "SCHEDULED" ||
+      m.group.draftStatus === "OPEN" ||
+      m.group.draftStatus === "LOCKED" ||
       m.group.draftStatus === "IN_PROGRESS"
   );
   const postDraftGroups = memberships.filter(
@@ -95,16 +95,16 @@ export default async function DashboardPage() {
   });
 
   const draftStatusLabels: Record<string, string> = {
-    PENDING: "Not scheduled",
-    SCHEDULED: "Scheduled",
+    OPEN: "Open",
+    LOCKED: "Locked",
     IN_PROGRESS: "Draft in progress",
     COMPLETED: "Completed",
   };
 
   const draftStatusColors: Record<string, string> = {
-    PENDING: "text-yellow-500 border-yellow-500/30",
-    SCHEDULED: "text-blue-500 border-blue-500/30",
-    IN_PROGRESS: "text-green-500 border-green-500/30",
+    OPEN: "text-green-500 border-green-500/30",
+    LOCKED: "text-blue-500 border-blue-500/30",
+    IN_PROGRESS: "text-yellow-500 border-yellow-500/30",
     COMPLETED: "text-muted-foreground",
   };
 
@@ -202,8 +202,10 @@ export default async function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Invite code */}
-                  <InviteCard inviteCode={group.inviteCode} />
+                  {/* Invite code - only when open */}
+                  {group.draftStatus === "OPEN" && (
+                    <InviteCard inviteCode={group.inviteCode} />
+                  )}
 
                   {/* Draft time */}
                   {draftTimeIso && (
@@ -234,7 +236,7 @@ export default async function DashboardPage() {
                   {/* Members list */}
                   <div>
                     <p className="text-sm font-medium mb-2">
-                      Members ({group.members.length})
+                      Members ({group.members.length}{group.maxPlayers ? ` of ${group.maxPlayers}` : ""})
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                       {group.members.map((m) => (

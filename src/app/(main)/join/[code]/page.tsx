@@ -55,14 +55,46 @@ export default async function JoinPage({
     redirect(`/groups/${group.id}`);
   }
 
-  if (group.draftStatus === "COMPLETED") {
+  // Block joining for non-open groups
+  if (group.draftStatus !== "OPEN") {
+    const messages: Record<string, { title: string; desc: string }> = {
+      LOCKED: {
+        title: "Group is locked",
+        desc: "The commissioner has locked this group. They must unlock it before new members can join.",
+      },
+      IN_PROGRESS: {
+        title: "Draft in progress",
+        desc: "This group\u2019s draft is in progress. Membership is locked.",
+      },
+      COMPLETED: {
+        title: "Draft completed",
+        desc: "This group\u2019s draft is already finished. Membership is locked.",
+      },
+    };
+
+    const msg = messages[group.draftStatus] || messages.COMPLETED;
+
     return (
       <div className="max-w-md mx-auto mt-8">
         <Card>
           <CardContent className="py-12 text-center">
-            <h3 className="text-lg font-medium mb-2">Draft completed</h3>
+            <h3 className="text-lg font-medium mb-2">{msg.title}</h3>
+            <p className="text-muted-foreground">{msg.desc}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Check capacity
+  if (group.maxPlayers && group.members.length >= group.maxPlayers) {
+    return (
+      <div className="max-w-md mx-auto mt-8">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <h3 className="text-lg font-medium mb-2">Group is full</h3>
             <p className="text-muted-foreground">
-              This group&apos;s draft is already finished. Membership is locked.
+              This group has reached its maximum of {group.maxPlayers} players.
             </p>
           </CardContent>
         </Card>
@@ -77,7 +109,9 @@ export default async function JoinPage({
           <CardTitle>Join {group.name}?</CardTitle>
           <CardDescription>
             Hosted by {group.commissioner.displayName} &middot;{" "}
-            {group.members.length} member{group.members.length !== 1 ? "s" : ""}
+            {group.members.length}
+            {group.maxPlayers ? ` of ${group.maxPlayers}` : ""} member
+            {group.members.length !== 1 ? "s" : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

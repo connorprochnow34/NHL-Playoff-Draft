@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { randomizeDraftOrder } from "@/lib/draft-utils";
 
 export async function POST(
   _request: Request,
@@ -25,10 +26,7 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (
-    group.draftStatus !== "PENDING" &&
-    group.draftStatus !== "SCHEDULED"
-  ) {
+  if (group.draftStatus !== "OPEN" && group.draftStatus !== "LOCKED") {
     return NextResponse.json(
       { error: "Draft order can only be set before the draft starts" },
       { status: 400 }
@@ -42,27 +40,12 @@ export async function POST(
     );
   }
 
-  // Fisher-Yates shuffle
-  const memberIds = group.members.map((m) => m.id);
-  for (let i = memberIds.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [memberIds[i], memberIds[j]] = [memberIds[j], memberIds[i]];
-  }
+  await randomizeDraftOrder(groupId);
 
-  // Assign positions
-  await Promise.all(
-    memberIds.map((memberId, index) =>
-      prisma.groupMember.update({
-        where: { id: memberId },
-        data: { draftPosition: index + 1 },
-      })
-    )
-  );
-
-  // Update group status
+  // Update group status to LOCKED
   const updated = await prisma.group.update({
     where: { id: groupId },
-    data: { draftStatus: "SCHEDULED" },
+    data: { draftStatus: "LOCKED" },
     include: {
       commissioner: true,
       members: {

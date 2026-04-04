@@ -31,9 +31,9 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (group.draftStatus !== "SCHEDULED") {
+  if (group.draftStatus !== "LOCKED") {
     return NextResponse.json(
-      { error: "Draft must be scheduled first (randomize order)" },
+      { error: "Group must be locked before starting the draft" },
       { status: 400 }
     );
   }

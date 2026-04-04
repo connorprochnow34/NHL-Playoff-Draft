@@ -16,6 +16,11 @@ import { SeriesFeed } from "@/components/leaderboard/series-feed";
 import { InviteCard } from "@/components/groups/invite-card";
 import { ChirpCard } from "@/components/groups/chirp-card";
 import { DraftTime } from "@/components/groups/draft-time";
+import {
+  LockButton,
+  UnlockButton,
+  StartDraftButton,
+} from "@/components/groups/group-actions";
 
 export default async function GroupPage({
   params,
@@ -70,8 +75,22 @@ export default async function GroupPage({
   });
 
   const isCommissioner = group.commissionerId === user.id;
-  const isDraftReady =
-    group.draftStatus === "PENDING" || group.draftStatus === "SCHEDULED";
+  const isPreDraft =
+    group.draftStatus === "OPEN" || group.draftStatus === "LOCKED";
+
+  const draftStatusLabels: Record<string, string> = {
+    OPEN: "Open",
+    LOCKED: "Locked",
+    IN_PROGRESS: "Draft in progress",
+    COMPLETED: "Completed",
+  };
+
+  const draftStatusColors: Record<string, string> = {
+    OPEN: "text-green-500 border-green-500/30",
+    LOCKED: "text-blue-500 border-blue-500/30",
+    IN_PROGRESS: "text-yellow-500 border-yellow-500/30",
+    COMPLETED: "text-muted-foreground",
+  };
 
   return (
     <div className="space-y-6">
@@ -82,8 +101,14 @@ export default async function GroupPage({
             Commissioner: {group.commissioner.displayName}
           </p>
         </div>
-        <div className="flex gap-2">
-          {isCommissioner && (
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className={draftStatusColors[group.draftStatus]}
+          >
+            {draftStatusLabels[group.draftStatus]}
+          </Badge>
+          {isCommissioner && isPreDraft && (
             <Link
               href={`/groups/${groupId}/settings`}
               className="inline-flex items-center justify-center rounded-lg border border-border bg-background text-foreground h-8 px-3 text-sm font-medium hover:bg-muted transition-colors"
@@ -91,24 +116,20 @@ export default async function GroupPage({
               Settings
             </Link>
           )}
-          {(group.draftStatus === "SCHEDULED" ||
-            group.draftStatus === "IN_PROGRESS") && (
+          {group.draftStatus === "IN_PROGRESS" && (
             <Link
               href={`/groups/${groupId}/draft`}
               className="inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground h-8 px-3 text-sm font-medium hover:bg-primary/80 transition-colors"
             >
-              {group.draftStatus === "IN_PROGRESS"
-                ? "Join Draft"
-                : "Draft Room"}
+              Join Draft
             </Link>
           )}
         </div>
       </div>
 
-      {isDraftReady && (
+      {isPreDraft && (
         <>
-          <InviteCard inviteCode={group.inviteCode} />
-
+          {/* Draft time */}
           {group.draftScheduledAt && (
             <div className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground">Draft:</span>
@@ -116,13 +137,56 @@ export default async function GroupPage({
             </div>
           )}
 
+          {/* Invite card - only when OPEN */}
+          {group.draftStatus === "OPEN" && (
+            <InviteCard inviteCode={group.inviteCode} />
+          )}
+
+          {/* Commissioner actions */}
+          {isCommissioner && (
+            <div className="flex items-center gap-2">
+              {group.draftStatus === "OPEN" && (
+                <LockButton
+                  groupId={groupId}
+                  memberCount={group.members.length}
+                />
+              )}
+              {group.draftStatus === "LOCKED" && (
+                <>
+                  <UnlockButton groupId={groupId} />
+                  <StartDraftButton groupId={groupId} />
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Locked state info */}
+          {group.draftStatus === "LOCKED" && (
+            <Card>
+              <CardContent className="py-3">
+                <p className="text-sm text-muted-foreground">
+                  Group is locked. Draft order has been randomized.
+                  {isCommissioner
+                    ? " You can start the draft or unlock to re-open invites."
+                    : " Waiting for the commissioner to start the draft."}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Members */}
           <Card>
             <CardHeader>
-              <CardTitle>Members ({group.members.length})</CardTitle>
+              <CardTitle>
+                Members ({group.members.length}
+                {group.maxPlayers ? ` of ${group.maxPlayers}` : ""})
+              </CardTitle>
               <CardDescription>
-                {isCommissioner
-                  ? "Configure the draft in Settings when everyone has joined."
-                  : "Waiting for the commissioner to start the draft."}
+                {group.draftStatus === "OPEN"
+                  ? isCommissioner
+                    ? "Lock the group when everyone has joined to randomize draft order."
+                    : "Waiting for more members to join."
+                  : "Draft order is set."}
               </CardDescription>
             </CardHeader>
             <CardContent>

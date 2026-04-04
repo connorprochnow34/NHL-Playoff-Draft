@@ -178,7 +178,11 @@ export default async function DashboardPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-lg">{group.name}</CardTitle>
+                      <CardTitle className="text-lg">
+                        <Link href={`/groups/${group.id}`} className="hover:text-primary transition-colors">
+                          {group.name}
+                        </Link>
+                      </CardTitle>
                       <CardDescription>
                         Commissioner: {group.commissioner.displayName}
                       </CardDescription>

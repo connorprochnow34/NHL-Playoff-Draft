@@ -78,6 +78,46 @@ export default function GroupSettingsPage() {
     setSaving(false);
   }
 
+  async function handleLock() {
+    setSaving(true);
+    const res = await fetch(`/api/groups/${groupId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "lock" }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      setGroup(data);
+      toast.success("Group locked! Draft order randomized.");
+      router.refresh();
+    } else {
+      const data = await res.json();
+      toast.error(data.error || "Failed to lock group");
+    }
+    setSaving(false);
+  }
+
+  async function handleUnlock() {
+    setSaving(true);
+    const res = await fetch(`/api/groups/${groupId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "unlock" }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      setGroup(data);
+      toast.success("Group unlocked. Invites are open again.");
+      router.refresh();
+    } else {
+      const data = await res.json();
+      toast.error(data.error || "Failed to unlock group");
+    }
+    setSaving(false);
+  }
+
   async function handleStartDraft() {
     const res = await fetch(`/api/groups/${groupId}/draft/start`, {
       method: "POST",
@@ -170,7 +210,7 @@ export default function GroupSettingsPage() {
           <CardHeader>
             <CardTitle>Draft Setup</CardTitle>
             <CardDescription>
-              Configure draft settings. Lock the group from the group page when ready.
+              Configure draft settings before starting.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -224,34 +264,64 @@ export default function GroupSettingsPage() {
               {saving ? "Saving..." : "Save Draft Settings"}
             </Button>
 
-            {group.draftStatus === "LOCKED" && (
-              <>
-                <Separator />
-                {group.members.some((m) => m.draftPosition) && (
-                  <div className="text-sm space-y-1">
-                    <p className="font-medium">Draft Order:</p>
-                    {group.members
-                      .filter((m) => m.draftPosition)
-                      .sort(
-                        (a, b) =>
-                          (a.draftPosition || 0) - (b.draftPosition || 0)
-                      )
-                      .map((m) => (
-                        <p key={m.id} className="text-muted-foreground">
-                          {m.draftPosition}. {m.user.displayName}
-                        </p>
-                      ))}
-                  </div>
-                )}
+            <Separator />
+
+            <div className="space-y-3">
+              {group.draftStatus === "OPEN" && (
                 <Button
+                  variant="outline"
                   className="w-full"
-                  onClick={handleStartDraft}
-                  disabled={group.members.length < 2}
+                  onClick={handleLock}
+                  disabled={saving || group.members.length < 2}
                 >
-                  Start Draft Now
+                  {saving ? "Locking..." : "Lock Group & Randomize Draft Order"}
                 </Button>
-              </>
-            )}
+              )}
+
+              {group.draftStatus === "LOCKED" && (
+                <>
+                  {group.members.some((m) => m.draftPosition) && (
+                    <div className="text-sm space-y-1">
+                      <p className="font-medium">Draft Order:</p>
+                      {group.members
+                        .filter((m) => m.draftPosition)
+                        .sort(
+                          (a, b) =>
+                            (a.draftPosition || 0) - (b.draftPosition || 0)
+                        )
+                        .map((m) => (
+                          <p key={m.id} className="text-muted-foreground">
+                            {m.draftPosition}. {m.user.displayName}
+                          </p>
+                        ))}
+                    </div>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleUnlock}
+                    disabled={saving}
+                  >
+                    {saving ? "Unlocking..." : "Unlock Group"}
+                  </Button>
+
+                  <Button
+                    className="w-full"
+                    onClick={handleStartDraft}
+                    disabled={group.members.length < 2}
+                  >
+                    Start Draft Now
+                  </Button>
+                </>
+              )}
+
+              {group.members.length < 2 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Need at least 2 members to lock the group.
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

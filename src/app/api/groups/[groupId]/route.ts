@@ -76,10 +76,18 @@ export async function PATCH(
   const updates: Record<string, unknown> = {};
 
   if (body.name) updates.name = body.name;
-  if (body.draftScheduledAt !== undefined)
+  if (body.draftScheduledAt !== undefined) {
     updates.draftScheduledAt = body.draftScheduledAt
       ? new Date(body.draftScheduledAt)
       : null;
+    // Auto-update status when draft date is set/cleared (only if still pending/scheduled)
+    if (
+      group.draftStatus === "PENDING" ||
+      group.draftStatus === "SCHEDULED"
+    ) {
+      updates.draftStatus = body.draftScheduledAt ? "SCHEDULED" : "PENDING";
+    }
+  }
   if (body.draftNotes !== undefined) updates.draftNotes = body.draftNotes;
   if (body.pickTimerSeconds)
     updates.pickTimerSeconds = Math.min(120, Math.max(30, body.pickTimerSeconds));

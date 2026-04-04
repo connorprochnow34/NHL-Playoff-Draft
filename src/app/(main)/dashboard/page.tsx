@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { JoinCodeInput } from "@/components/groups/join-code-input";
 import { InviteCard } from "@/components/groups/invite-card";
+import { DraftTime } from "@/components/groups/draft-time";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -168,15 +169,8 @@ export default async function DashboardPage() {
 
           {preDraftGroups.map(({ group }) => {
             const isCommissioner = group.commissionerId === user.id;
-            const draftTime = group.draftScheduledAt
-              ? new Date(group.draftScheduledAt).toLocaleString("en-US", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                  timeZoneName: "short",
-                })
+            const draftTimeIso = group.draftScheduledAt
+              ? group.draftScheduledAt.toISOString()
               : null;
 
             return (
@@ -212,10 +206,10 @@ export default async function DashboardPage() {
                   <InviteCard inviteCode={group.inviteCode} />
 
                   {/* Draft time */}
-                  {draftTime && (
+                  {draftTimeIso && (
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-muted-foreground">Draft:</span>
-                      <span className="font-medium">{draftTime}</span>
+                      <DraftTime iso={draftTimeIso} />
                     </div>
                   )}
 

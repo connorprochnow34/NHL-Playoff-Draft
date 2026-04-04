@@ -15,6 +15,7 @@ import { Standings } from "@/components/leaderboard/standings";
 import { SeriesFeed } from "@/components/leaderboard/series-feed";
 import { InviteCard } from "@/components/groups/invite-card";
 import { ChirpCard } from "@/components/groups/chirp-card";
+import { DraftTime } from "@/components/groups/draft-time";
 
 export default async function GroupPage({
   params,
@@ -107,6 +108,13 @@ export default async function GroupPage({
       {isDraftReady && (
         <>
           <InviteCard inviteCode={group.inviteCode} />
+
+          {group.draftScheduledAt && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Draft:</span>
+              <DraftTime iso={group.draftScheduledAt.toISOString()} />
+            </div>
+          )}
 
           <Card>
             <CardHeader>

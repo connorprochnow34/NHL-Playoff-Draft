@@ -33,9 +33,31 @@ export function Navbar({ user }: { user: User }) {
   return (
     <nav className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link href="/dashboard" className="font-bold text-lg">
-          Consolation <span className="text-primary">Cup</span>
-        </Link>
+        <div className="flex items-center gap-6">
+          <Link href="/dashboard" className="font-bold text-lg">
+            Consolation <span className="text-primary">Cup</span>
+          </Link>
+          <div className="hidden sm:flex items-center gap-1">
+            <Link
+              href="/dashboard"
+              className="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md hover:bg-muted transition-colors"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/rules"
+              className="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md hover:bg-muted transition-colors"
+            >
+              Rules
+            </Link>
+            <Link
+              href="/bracket"
+              className="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md hover:bg-muted transition-colors"
+            >
+              Bracket
+            </Link>
+          </div>
+        </div>
 
         <DropdownMenu>
           <DropdownMenuTrigger className="relative h-8 w-8 rounded-full outline-none">
@@ -52,11 +74,20 @@ export function Navbar({ user }: { user: User }) {
               <p className="text-xs text-muted-foreground">{user.email}</p>
             </div>
             <DropdownMenuSeparator />
+            <div className="sm:hidden">
+              <DropdownMenuItem onClick={() => router.push("/dashboard")}>
+                Dashboard
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/rules")}>
+                Rules
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/bracket")}>
+                Bracket
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </div>
             <DropdownMenuItem onClick={() => router.push("/profile")}>
               Profile
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push("/dashboard")}>
-              My Groups
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut}>

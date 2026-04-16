@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/nhl/sync",
-      "schedule": "0 6 * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/chirp/generate",

@@ -180,7 +180,10 @@ export default function GroupSettingsPage() {
   }
 
   const isDraftStarted =
-    group.draftStatus === "IN_PROGRESS" || group.draftStatus === "COMPLETED";
+    group.draftStatus === "COUNTDOWN" ||
+    group.draftStatus === "LIVE" ||
+    group.draftStatus === "PAUSED" ||
+    group.draftStatus === "COMPLETED";
 
   return (
     <div className="max-w-2xl mx-auto mt-8 space-y-6">
@@ -278,7 +281,7 @@ export default function GroupSettingsPage() {
                 </Button>
               )}
 
-              {group.draftStatus === "LOCKED" && (
+              {group.draftStatus === "WAITING" && (
                 <>
                   {group.members.some((m) => m.draftPosition) && (
                     <div className="text-sm space-y-1">

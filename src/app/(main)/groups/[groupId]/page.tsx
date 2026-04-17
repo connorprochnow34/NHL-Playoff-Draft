@@ -76,19 +76,27 @@ export default async function GroupPage({
 
   const isCommissioner = group.commissionerId === user.id;
   const isPreDraft =
-    group.draftStatus === "OPEN" || group.draftStatus === "LOCKED";
+    group.draftStatus === "OPEN" || group.draftStatus === "WAITING";
+  const isLiveDraft =
+    group.draftStatus === "COUNTDOWN" ||
+    group.draftStatus === "LIVE" ||
+    group.draftStatus === "PAUSED";
 
   const draftStatusLabels: Record<string, string> = {
     OPEN: "Open",
-    LOCKED: "Locked",
-    IN_PROGRESS: "Draft in progress",
+    WAITING: "Waiting room",
+    COUNTDOWN: "Starting…",
+    LIVE: "Draft live",
+    PAUSED: "Paused",
     COMPLETED: "Completed",
   };
 
   const draftStatusColors: Record<string, string> = {
     OPEN: "text-green-500 border-green-500/30",
-    LOCKED: "text-blue-500 border-blue-500/30",
-    IN_PROGRESS: "text-yellow-500 border-yellow-500/30",
+    WAITING: "text-blue-500 border-blue-500/30",
+    COUNTDOWN: "text-yellow-500 border-yellow-500/30",
+    LIVE: "text-yellow-500 border-yellow-500/30",
+    PAUSED: "text-yellow-500 border-yellow-500/30",
     COMPLETED: "text-muted-foreground",
   };
 
@@ -116,12 +124,14 @@ export default async function GroupPage({
               Settings
             </Link>
           )}
-          {group.draftStatus === "IN_PROGRESS" && (
+          {(isLiveDraft || group.draftStatus === "WAITING") && (
             <Link
               href={`/groups/${groupId}/draft`}
               className="inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground h-8 px-3 text-sm font-medium hover:bg-primary/80 transition-colors"
             >
-              Join Draft
+              {group.draftStatus === "WAITING"
+                ? "Enter Waiting Room"
+                : "Join Draft"}
             </Link>
           )}
         </div>
@@ -151,7 +161,7 @@ export default async function GroupPage({
                   memberCount={group.members.length}
                 />
               )}
-              {group.draftStatus === "LOCKED" && (
+              {group.draftStatus === "WAITING" && (
                 <>
                   <UnlockButton groupId={groupId} />
                   <StartDraftButton groupId={groupId} />
@@ -160,15 +170,15 @@ export default async function GroupPage({
             </div>
           )}
 
-          {/* Locked state info */}
-          {group.draftStatus === "LOCKED" && (
+          {/* Waiting state info */}
+          {group.draftStatus === "WAITING" && (
             <Card>
               <CardContent className="py-3">
                 <p className="text-sm text-muted-foreground">
                   Group is locked. Draft order has been randomized.
                   {isCommissioner
-                    ? " You can start the draft or unlock to re-open invites."
-                    : " Waiting for the commissioner to start the draft."}
+                    ? " Enter the waiting room to start the draft, or unlock to re-open invites."
+                    : " Enter the waiting room and wait for the commissioner to start."}
                 </p>
               </CardContent>
             </Card>

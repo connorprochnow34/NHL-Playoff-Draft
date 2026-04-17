@@ -1,26 +1,28 @@
-import { redirect, notFound } from "next/navigation";
+import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-import { DraftRoomShell } from "@/components/draft/draft-room-shell";
 import { parseDraftState } from "@/lib/draft/state-machine";
 
-export default async function DraftPage({
-  params,
-}: {
-  params: Promise<{ groupId: string }>;
-}) {
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ groupId: string }> }
+) {
   const { groupId } = await params;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/login");
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const membership = await prisma.groupMember.findUnique({
     where: { groupId_userId: { groupId, userId: user.id } },
   });
-  if (!membership) notFound();
+  if (!membership) {
+    return NextResponse.json({ error: "Not a member" }, { status: 403 });
+  }
 
   const group = await prisma.group.findUnique({
     where: { id: groupId },
@@ -41,11 +43,9 @@ export default async function DraftPage({
       },
     },
   });
-  if (!group) notFound();
 
-  // URL guard: draft room only accessible after lock
-  if (group.draftStatus === "OPEN") {
-    redirect(`/groups/${groupId}?reason=lock-first`);
+  if (!group) {
+    return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
   const teams = await prisma.nhlTeam.findMany({
@@ -53,7 +53,7 @@ export default async function DraftPage({
     orderBy: [{ conference: "asc" }, { seed: "asc" }],
   });
 
-  const initialState = {
+  return NextResponse.json({
     groupId: group.id,
     groupName: group.name,
     commissionerId: group.commissionerId,
@@ -66,13 +66,5 @@ export default async function DraftPage({
     picks: group.picks,
     teams,
     serverNow: new Date().toISOString(),
-  };
-
-  return (
-    <DraftRoomShell
-      groupId={groupId}
-      userId={user.id}
-      initialState={initialState}
-    />
-  );
+  });
 }

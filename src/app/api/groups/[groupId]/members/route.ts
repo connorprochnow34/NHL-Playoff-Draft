@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-import { randomizeDraftOrder, clearDraftOrder } from "@/lib/draft-utils";
+import {
+  lockGroupAndComputeDraftState,
+  unlockGroup,
+} from "@/lib/draft-utils";
 
 // Join a group
 export async function POST(
@@ -65,12 +68,13 @@ export async function POST(
   const newCount = group._count.members + 1;
   let autoLocked = false;
   if (group.maxPlayers && newCount >= group.maxPlayers && newCount >= 2) {
-    await randomizeDraftOrder(groupId);
-    await prisma.group.update({
-      where: { id: groupId },
-      data: { draftStatus: "LOCKED" },
-    });
-    autoLocked = true;
+    try {
+      await lockGroupAndComputeDraftState(groupId);
+      autoLocked = true;
+    } catch (e) {
+      // Don't fail the join if auto-lock fails (e.g., teams not synced)
+      console.error("Auto-lock failed:", e);
+    }
   }
 
   return NextResponse.json({ ...member, autoLocked });
@@ -99,7 +103,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (group.draftStatus !== "OPEN" && group.draftStatus !== "LOCKED") {
+  if (group.draftStatus !== "OPEN" && group.draftStatus !== "WAITING") {
     return NextResponse.json(
       { error: "Cannot remove members after draft starts" },
       { status: 400 }
@@ -121,13 +125,9 @@ export async function DELETE(
     },
   });
 
-  // If group was locked, auto-unlock since draft order is now invalid
-  if (group.draftStatus === "LOCKED") {
-    await clearDraftOrder(groupId);
-    await prisma.group.update({
-      where: { id: groupId },
-      data: { draftStatus: "OPEN" },
-    });
+  // If group was waiting (post-lock), auto-unlock since draft order is now invalid
+  if (group.draftStatus === "WAITING") {
+    await unlockGroup(groupId);
   }
 
   return NextResponse.json({ success: true });

@@ -8,11 +8,8 @@ import {
 } from "@/lib/draft/state-machine";
 
 /**
- * Commissioner-only: WAITING → COUNTDOWN.
- *
- * Sets countdown_started_at and copies pick_duration_seconds from group config
- * into the draft state. Clients show a 5-second countdown, then any client
- * triggers /transition-to-live to atomically move to LIVE.
+ * Commissioner-only: PAUSED → LIVE.
+ * RESETS the timer to full duration (per spec) by setting pick_started_at = NOW.
  */
 export async function POST(
   _request: Request,
@@ -23,60 +20,43 @@ export async function POST(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const group = await prisma.group.findUnique({
-    where: { id: groupId },
-  });
+  const group = await prisma.group.findUnique({ where: { id: groupId } });
   if (!group) {
-    return NextResponse.json({ error: "Group not found" }, { status: 404 });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (group.commissionerId !== user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (group.draftStatus !== "WAITING") {
+  if (group.draftStatus !== "PAUSED") {
     return NextResponse.json(
-      { error: "Draft can only be started from WAITING state" },
+      { error: "Draft can only be resumed when PAUSED" },
       { status: 400 }
     );
   }
-
   const draftState = parseDraftState(group.draftState);
   if (!draftState) {
-    return NextResponse.json(
-      { error: "Draft state not initialized — re-lock the group" },
-      { status: 400 }
-    );
-  }
-
-  // Validate exactly 16 playoff teams
-  const teamCount = await prisma.nhlTeam.count({
-    where: { isPlayoffTeam: true },
-  });
-  if (teamCount !== 16) {
-    return NextResponse.json(
-      { error: `Expected 16 playoff teams, got ${teamCount}. Sync NHL data first.` },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "No draft state" }, { status: 400 });
   }
 
   const updated = await prisma.group.update({
     where: { id: groupId },
     data: {
-      draftStatus: "COUNTDOWN",
+      draftStatus: "LIVE",
       draftState: {
         ...draftState,
-        countdown_started_at: new Date().toISOString(),
-        pick_duration_seconds: group.pickTimerSeconds,
+        pick_started_at: new Date().toISOString(),
+        paused_at: null,
+        paused_remaining_ms: null,
       } as unknown as Prisma.InputJsonValue,
       draftStateVersion: { increment: 1 },
     },
   });
 
-  await broadcastStateChanged(groupId, updated.draftStateVersion, "start");
+  await broadcastStateChanged(groupId, updated.draftStateVersion, "resume");
 
   return NextResponse.json({ success: true });
 }

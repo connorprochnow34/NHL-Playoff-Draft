@@ -58,13 +58,21 @@ export default async function JoinPage({
   // Block joining for non-open groups
   if (group.draftStatus !== "OPEN") {
     const messages: Record<string, { title: string; desc: string }> = {
-      LOCKED: {
+      WAITING: {
         title: "Group is locked",
         desc: "The commissioner has locked this group. They must unlock it before new members can join.",
       },
-      IN_PROGRESS: {
+      COUNTDOWN: {
+        title: "Draft starting",
+        desc: "This group\u2019s draft is about to start. Membership is locked.",
+      },
+      LIVE: {
         title: "Draft in progress",
         desc: "This group\u2019s draft is in progress. Membership is locked.",
+      },
+      PAUSED: {
+        title: "Draft in progress",
+        desc: "This group\u2019s draft is in progress (currently paused). Membership is locked.",
       },
       COMPLETED: {
         title: "Draft completed",

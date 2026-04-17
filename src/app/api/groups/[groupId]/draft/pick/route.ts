@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  getPickInfo,
-  getTotalPicks,
-  validatePick,
-  getAutoPickTeamId,
-} from "@/lib/draft/snake";
+  advancePickInTransaction,
+  broadcastStateChanged,
+  parseDraftState,
+} from "@/lib/draft/state-machine";
 
+/**
+ * Manual pick by current picker.
+ *
+ * Validates:
+ *   - draft_status = LIVE (not paused, countdown, or completed)
+ *   - requesting user matches draft_state.current_user_id
+ *   - team is in the playoff set and not already picked
+ *   - timer hasn't expired (NOW < pick_started_at + duration)
+ *
+ * On success: inserts pick (is_auto_pick=false), advances state, broadcasts.
+ */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ groupId: string }> }
@@ -23,167 +32,81 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { teamId, isAutoPick } = await request.json();
-
-  const group = await prisma.group.findUnique({
-    where: { id: groupId },
-    include: {
-      members: {
-        include: { user: true },
-        orderBy: { draftPosition: "asc" },
-      },
-      picks: true,
-    },
-  });
-
-  if (!group) {
-    return NextResponse.json({ error: "Group not found" }, { status: 404 });
+  const { teamId } = await request.json();
+  if (!teamId || typeof teamId !== "string") {
+    return NextResponse.json({ error: "teamId required" }, { status: 400 });
   }
 
-  if (group.draftStatus !== "IN_PROGRESS") {
-    return NextResponse.json(
-      { error: "Draft is not in progress" },
-      { status: 400 }
-    );
+  let resultPayload: {
+    isComplete: boolean;
+    nextVersion: number;
+  };
+
+  try {
+    resultPayload = await prisma.$transaction(async (tx) => {
+      const group = await tx.group.findUnique({
+        where: { id: groupId },
+      });
+      if (!group) throw new Error("NOT_FOUND");
+      if (group.draftStatus !== "LIVE") {
+        throw new Error(`STATUS:${group.draftStatus}`);
+      }
+
+      const draftState = parseDraftState(group.draftState);
+      if (!draftState) throw new Error("NO_STATE");
+
+      // Verify it's this user's turn
+      if (draftState.current_user_id !== user.id) {
+        throw new Error("NOT_YOUR_TURN");
+      }
+
+      // Verify timer hasn't expired (server time)
+      if (draftState.pick_started_at) {
+        const elapsedMs =
+          Date.now() - new Date(draftState.pick_started_at).getTime();
+        if (elapsedMs >= draftState.pick_duration_seconds * 1000) {
+          throw new Error("TIMER_EXPIRED");
+        }
+      }
+
+      // Verify team exists and is a playoff team
+      const team = await tx.nhlTeam.findUnique({ where: { id: teamId } });
+      if (!team || !team.isPlayoffTeam) {
+        throw new Error("INVALID_TEAM");
+      }
+
+      // Verify team not already picked
+      const existing = await tx.pick.findUnique({
+        where: { groupId_teamId: { groupId, teamId } },
+      });
+      if (existing) {
+        throw new Error("TEAM_ALREADY_PICKED");
+      }
+
+      const { isComplete, newVersion } = await advancePickInTransaction(tx, {
+        groupId,
+        userId: user.id,
+        teamId,
+        isAutoPick: false,
+        draftState,
+        currentVersion: group.draftStateVersion,
+      });
+
+      return { isComplete, nextVersion: newVersion };
+    });
+  } catch (e) {
+    const code = e instanceof Error ? e.message : "UNKNOWN";
+    return NextResponse.json({ error: code }, { status: 400 });
   }
 
-  // Verify membership
-  const membership = group.members.find((m) => m.userId === user.id);
-  if (!membership) {
-    return NextResponse.json({ error: "Not a member" }, { status: 403 });
-  }
-
-  const currentPickNumber = group.picks.length + 1;
-  const totalMembers = group.members.length;
-
-  // Build lookup maps
-  const membersByPosition = new Map(
-    group.members
-      .filter((m) => m.draftPosition)
-      .map((m) => [m.draftPosition!, m.userId])
+  await broadcastStateChanged(
+    groupId,
+    resultPayload.nextVersion,
+    resultPayload.isComplete ? "complete" : "pick"
   );
-  const pickedTeamIds = new Set(group.picks.map((p) => p.teamId));
-
-  // Determine team to pick
-  let finalTeamId = teamId;
-
-  if (isAutoPick) {
-    // Auto-pick: get available teams and pick highest seed
-    const availableTeams = await prisma.nhlTeam.findMany({
-      where: {
-        isPlayoffTeam: true,
-        id: { notIn: Array.from(pickedTeamIds) },
-      },
-      select: { id: true, seed: true },
-    });
-
-    finalTeamId = getAutoPickTeamId(availableTeams);
-    if (!finalTeamId) {
-      return NextResponse.json(
-        { error: "No teams available" },
-        { status: 400 }
-      );
-    }
-  }
-
-  // Validate pick
-  const validation = validatePick({
-    currentPickNumber,
-    totalMembers,
-    userId: user.id,
-    membersByPosition,
-    pickedTeamIds,
-    teamId: finalTeamId,
-  });
-
-  if (!validation.valid) {
-    return NextResponse.json(
-      { error: validation.error },
-      { status: 400 }
-    );
-  }
-
-  const { round } = getPickInfo(totalMembers, currentPickNumber);
-
-  // Record the pick
-  const pick = await prisma.pick.create({
-    data: {
-      groupId,
-      userId: user.id,
-      teamId: finalTeamId,
-      draftRound: round,
-      draftPosition: currentPickNumber,
-    },
-    include: { team: true, user: true },
-  });
-
-  // Check if draft is complete
-  const totalPicks = getTotalPicks();
-  const newPickNumber = currentPickNumber + 1;
-  const isDraftComplete = newPickNumber > totalPicks;
-
-  if (isDraftComplete) {
-    await prisma.group.update({
-      where: { id: groupId },
-      data: { draftStatus: "COMPLETED" },
-    });
-  }
-
-  // Determine next picker
-  let nextUserId: string | null = null;
-  if (!isDraftComplete) {
-    const { draftPosition: nextPosition } = getPickInfo(
-      totalMembers,
-      newPickNumber
-    );
-    nextUserId = membersByPosition.get(nextPosition) || null;
-  }
-
-  // Broadcast via Supabase realtime
-  const adminClient = createAdminClient();
-  const channel = adminClient.channel(`draft:${groupId}`);
-
-  if (isDraftComplete) {
-    await channel.send({
-      type: "broadcast",
-      event: "draft_completed",
-      payload: {
-        lastPick: {
-          userId: pick.userId,
-          userName: pick.user.displayName,
-          teamId: pick.teamId,
-          teamName: pick.team.name,
-          teamAbbrev: pick.team.abbreviation,
-          teamLogo: pick.team.logoUrl,
-          pickNumber: currentPickNumber,
-          round,
-        },
-      },
-    });
-  } else {
-    await channel.send({
-      type: "broadcast",
-      event: "pick_made",
-      payload: {
-        userId: pick.userId,
-        userName: pick.user.displayName,
-        teamId: pick.teamId,
-        teamName: pick.team.name,
-        teamAbbrev: pick.team.abbreviation,
-        teamLogo: pick.team.logoUrl,
-        pickNumber: currentPickNumber,
-        round,
-        nextUserId,
-        nextPickNumber: newPickNumber,
-        isAutoPick: !!isAutoPick,
-      },
-    });
-  }
 
   return NextResponse.json({
-    pick,
-    isDraftComplete,
-    nextUserId,
-    nextPickNumber: isDraftComplete ? null : newPickNumber,
+    success: true,
+    isComplete: resultPayload.isComplete,
   });
 }

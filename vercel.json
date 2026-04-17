@@ -7,6 +7,10 @@
     {
       "path": "/api/chirp/generate",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/draft-sweep",
+      "schedule": "* * * * *"
     }
   ]
 }

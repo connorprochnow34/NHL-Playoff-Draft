@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-import { randomizeDraftOrder, clearDraftOrder } from "@/lib/draft-utils";
+import { lockGroupAndComputeDraftState, unlockGroup } from "@/lib/draft-utils";
 
 export async function GET(
   _request: Request,
@@ -83,19 +83,14 @@ export async function PATCH(
         { status: 400 }
       );
     }
-    const members = await prisma.groupMember.findMany({
-      where: { groupId },
-    });
-    if (members.length < 2) {
-      return NextResponse.json(
-        { error: "Need at least 2 members to lock" },
-        { status: 400 }
-      );
+    try {
+      await lockGroupAndComputeDraftState(groupId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to lock group";
+      return NextResponse.json({ error: message }, { status: 400 });
     }
-    await randomizeDraftOrder(groupId);
-    const updated = await prisma.group.update({
+    const updated = await prisma.group.findUnique({
       where: { id: groupId },
-      data: { draftStatus: "LOCKED" },
       include: {
         commissioner: true,
         members: {
@@ -108,16 +103,15 @@ export async function PATCH(
   }
 
   if (body.action === "unlock") {
-    if (group.draftStatus !== "LOCKED") {
+    if (group.draftStatus !== "WAITING") {
       return NextResponse.json(
-        { error: "Group can only be unlocked when locked" },
+        { error: "Group can only be unlocked when waiting" },
         { status: 400 }
       );
     }
-    await clearDraftOrder(groupId);
-    const updated = await prisma.group.update({
+    await unlockGroup(groupId);
+    const updated = await prisma.group.findUnique({
       where: { id: groupId },
-      data: { draftStatus: "OPEN" },
       include: {
         commissioner: true,
         members: { include: { user: true } },

@@ -52,8 +52,10 @@ export default async function DashboardPage() {
   const preDraftGroups = memberships.filter(
     (m) =>
       m.group.draftStatus === "OPEN" ||
-      m.group.draftStatus === "LOCKED" ||
-      m.group.draftStatus === "IN_PROGRESS"
+      m.group.draftStatus === "WAITING" ||
+      m.group.draftStatus === "COUNTDOWN" ||
+      m.group.draftStatus === "LIVE" ||
+      m.group.draftStatus === "PAUSED"
   );
   const postDraftGroups = memberships.filter(
     (m) => m.group.draftStatus === "COMPLETED"
@@ -96,15 +98,19 @@ export default async function DashboardPage() {
 
   const draftStatusLabels: Record<string, string> = {
     OPEN: "Open",
-    LOCKED: "Locked",
-    IN_PROGRESS: "Draft in progress",
+    WAITING: "Waiting room",
+    COUNTDOWN: "Starting…",
+    LIVE: "Draft live",
+    PAUSED: "Paused",
     COMPLETED: "Completed",
   };
 
   const draftStatusColors: Record<string, string> = {
     OPEN: "text-green-500 border-green-500/30",
-    LOCKED: "text-blue-500 border-blue-500/30",
-    IN_PROGRESS: "text-yellow-500 border-yellow-500/30",
+    WAITING: "text-blue-500 border-blue-500/30",
+    COUNTDOWN: "text-yellow-500 border-yellow-500/30",
+    LIVE: "text-yellow-500 border-yellow-500/30",
+    PAUSED: "text-yellow-500 border-yellow-500/30",
     COMPLETED: "text-muted-foreground",
   };
 
@@ -227,13 +233,20 @@ export default async function DashboardPage() {
                     </div>
                   )}
 
-                  {/* Draft in progress link */}
-                  {group.draftStatus === "IN_PROGRESS" && (
+                  {/* Active draft link */}
+                  {(group.draftStatus === "WAITING" ||
+                    group.draftStatus === "COUNTDOWN" ||
+                    group.draftStatus === "LIVE" ||
+                    group.draftStatus === "PAUSED") && (
                     <Link
                       href={`/groups/${group.id}/draft`}
                       className="inline-flex w-full items-center justify-center rounded-lg bg-green-600 text-white h-9 px-4 text-sm font-medium hover:bg-green-700 transition-colors"
                     >
-                      Join Draft Now
+                      {group.draftStatus === "WAITING"
+                        ? "Enter Waiting Room"
+                        : group.draftStatus === "LIVE" || group.draftStatus === "PAUSED"
+                          ? "Join Live Draft"
+                          : "Draft starting…"}
                     </Link>
                   )}
 

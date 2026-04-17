@@ -10,8 +10,10 @@ datasource db {
 
 enum DraftStatus {
   OPEN
-  LOCKED
-  IN_PROGRESS
+  WAITING
+  COUNTDOWN
+  LIVE
+  PAUSED
   COMPLETED
 }
 
@@ -48,6 +50,8 @@ model Group {
   draftNotes       String?     @map("draft_notes")
   pickTimerSeconds Int         @default(60) @map("pick_timer_seconds")
   chirpTone        Int         @default(3) @map("chirp_tone")
+  draftState       Json?       @map("draft_state")
+  draftStateVersion Int        @default(0) @map("draft_state_version")
   createdAt        DateTime    @default(now()) @map("created_at")
 
   members GroupMember[]
@@ -126,6 +130,7 @@ model Pick {
   team          NhlTeam  @relation(fields: [teamId], references: [id])
   draftRound    Int      @map("draft_round")
   draftPosition Int      @map("draft_position")
+  isAutoPick    Boolean  @default(false) @map("is_auto_pick")
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@unique([groupId, teamId])

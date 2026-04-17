@@ -34,6 +34,13 @@ export async function syncNhlData(): Promise<SyncResult> {
       standings.standings.map((t) => [t.teamAbbrev.default, t])
     );
 
+    // Reset all playoff flags BEFORE upserts so stale teams from prior syncs
+    // are correctly marked non-playoff. Only the 16 teams in the current bracket
+    // will end up with isPlayoffTeam=true after this sync completes.
+    await prisma.nhlTeam.updateMany({
+      data: { isPlayoffTeam: false },
+    });
+
     // Upsert teams from bracket data
     const allTeamIds = new Set<number>();
 
@@ -87,6 +94,16 @@ export async function syncNhlData(): Promise<SyncResult> {
           `Failed to upsert series ${s.seriesLetter}: ${e}`
         );
       }
+    }
+
+    // Validate exactly 16 playoff teams
+    const playoffCount = await prisma.nhlTeam.count({
+      where: { isPlayoffTeam: true },
+    });
+    if (playoffCount !== 16) {
+      result.errors.push(
+        `Expected 16 playoff teams after sync, got ${playoffCount}`
+      );
     }
 
     // Log sync

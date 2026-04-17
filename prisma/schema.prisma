@@ -156,6 +156,7 @@ model Pick {
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@unique([groupId, teamId])
+  @@unique([groupId, draftPosition])
   @@map("picks")
 }
 

@@ -23,6 +23,11 @@ export function LiveDraft({ draft, userId }: Props) {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       const code = data.error;
+      // PICK_RACE_LOST is silent — auto-pick already advanced; just refresh state.
+      if (code === "PICK_RACE_LOST") {
+        await draft.refetch();
+        return;
+      }
       const messages: Record<string, string> = {
         NOT_YOUR_TURN: "It's not your turn",
         TIMER_EXPIRED: "Time ran out — picking automatically",

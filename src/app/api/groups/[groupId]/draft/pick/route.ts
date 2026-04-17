@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -95,6 +96,11 @@ export async function POST(
       return { isComplete, nextVersion: newVersion };
     });
   } catch (e) {
+    // P2002 = unique constraint violation. Means another concurrent request
+    // (likely auto-pick) already won this pick_number. Tell client to refresh.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json({ error: "PICK_RACE_LOST" }, { status: 409 });
+    }
     const code = e instanceof Error ? e.message : "UNKNOWN";
     return NextResponse.json({ error: code }, { status: 400 });
   }

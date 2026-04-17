@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   advancePickInTransaction,
@@ -101,6 +102,11 @@ export async function POST(
       };
     });
   } catch (e) {
+    // P2002 = unique constraint violation. Means another concurrent request
+    // won the race for this pick_number. Treat as a successful noop.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json({ picked: false, raceLost: true });
+    }
     console.error("auto-pick failed:", e);
     return NextResponse.json({ error: "auto-pick failed" }, { status: 500 });
   }

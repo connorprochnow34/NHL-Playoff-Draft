@@ -17,7 +17,7 @@ interface Props {
 export function DraftRoomShell({ groupId, userId, initialState }: Props) {
   const draft = useDraftState(groupId, userId, initialState);
   const presence = useDraftPresence(groupId, userId);
-  useAutoPickTrigger(draft);
+  useAutoPickTrigger(draft, userId);
 
   const status = draft.state.draftStatus;
 

@@ -120,6 +120,28 @@ export function useDraftState(
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refetch]);
 
+  // Polling fallback during active draft phases. The realtime broadcast is the
+  // primary mechanism, but if a broadcast is missed (network blip, channel
+  // teardown race), this guarantees the UI converges within ~3 seconds.
+  // Only polls during phases where state changes matter — never during WAITING
+  // or COMPLETED.
+  useEffect(() => {
+    const status = state.draftStatus;
+    if (
+      status !== "LIVE" &&
+      status !== "PAUSED" &&
+      status !== "COUNTDOWN"
+    ) {
+      return;
+    }
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        refetch();
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [state.draftStatus, refetch]);
+
   const isMyTurn =
     state.draftStatus === "LIVE" &&
     state.draftState?.current_user_id === userId;

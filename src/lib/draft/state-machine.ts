@@ -30,26 +30,52 @@ export interface DraftStateJson {
 /**
  * Send a real-time broadcast notifying clients that draft state has changed.
  * Clients react by refetching /api/groups/[id]/draft/state.
+ *
+ * IMPORTANT: Supabase requires the channel to be subscribed before send()
+ * will deliver. We subscribe, wait for SUBSCRIBED status, send, then tear down.
+ * Bounded by a 2s timeout so a slow connection never blocks the API request.
  */
 export async function broadcastStateChanged(
   groupId: string,
   version: number,
   kind: DraftStateKind
 ): Promise<void> {
+  const admin = createAdminClient();
+  const channel = admin.channel(`draft:${groupId}`, {
+    config: { broadcast: { ack: false, self: false } },
+  });
+
   try {
-    const admin = createAdminClient();
-    const channel = admin.channel(`draft:${groupId}`);
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("broadcast subscribe timeout")),
+        2000
+      );
+      channel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          clearTimeout(timeout);
+          resolve();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          clearTimeout(timeout);
+          reject(new Error(`broadcast subscribe failed: ${status}`));
+        }
+      });
+    });
+
     await channel.send({
       type: "broadcast",
       event: "state_changed",
       payload: { version, kind },
     });
-    // Clean up immediately since we don't keep the channel open
-    await admin.removeChannel(channel);
   } catch (error) {
-    // Log but never throw — broadcast failure must not break the API request.
-    // Clients will catch up via polling fallback.
+    // Log but never throw — clients will catch up via polling fallback.
     console.error("broadcastStateChanged failed:", error);
+  } finally {
+    try {
+      await admin.removeChannel(channel);
+    } catch {
+      // Cleanup errors are not actionable
+    }
   }
 }
 

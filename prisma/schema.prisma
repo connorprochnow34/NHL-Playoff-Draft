@@ -88,13 +88,35 @@ model NhlTeam {
   isPlayoffTeam Boolean  @default(false) @map("is_playoff_team")
   createdAt     DateTime @default(now()) @map("created_at")
 
-  homeSeries Series[] @relation("hometeam")
-  awaySeries Series[] @relation("awayteam")
-  wonSeries  Series[] @relation("winner")
+  homeSeries Series[]  @relation("hometeam")
+  awaySeries Series[]  @relation("awayteam")
+  wonSeries  Series[]  @relation("winner")
   picks      Pick[]
   points     Point[]
+  homeGames  NhlGame[] @relation("homeGame")
+  awayGames  NhlGame[] @relation("awayGame")
 
   @@map("nhl_teams")
+}
+
+model NhlGame {
+  id           String   @id @default(uuid()) @db.Uuid
+  nhlGameId    Int      @unique @map("nhl_game_id")
+  seriesLetter String?  @map("series_letter")
+  homeTeamId   String   @map("home_team_id") @db.Uuid
+  homeTeam     NhlTeam  @relation("homeGame", fields: [homeTeamId], references: [id])
+  awayTeamId   String   @map("away_team_id") @db.Uuid
+  awayTeam     NhlTeam  @relation("awayGame", fields: [awayTeamId], references: [id])
+  homeScore    Int?     @map("home_score")
+  awayScore    Int?     @map("away_score")
+  startTime    DateTime @map("start_time")
+  gameState    String   @map("game_state")
+  gameType     Int      @map("game_type")
+  syncedAt     DateTime @default(now()) @map("synced_at")
+
+  @@index([startTime])
+  @@index([gameState])
+  @@map("nhl_games")
 }
 
 model Series {

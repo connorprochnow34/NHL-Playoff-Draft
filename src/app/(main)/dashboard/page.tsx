@@ -15,6 +15,20 @@ import { Separator } from "@/components/ui/separator";
 import { JoinCodeInput } from "@/components/groups/join-code-input";
 import { InviteCard } from "@/components/groups/invite-card";
 import { DraftTime } from "@/components/groups/draft-time";
+import { ChirpCard } from "@/components/groups/chirp-card";
+import type { NhlGame, NhlTeam } from "@prisma/client";
+
+type GameWithTeams = NhlGame & {
+  homeTeam: NhlTeam;
+  awayTeam: NhlTeam;
+};
+
+const ROUND_LABEL: Record<number, string> = {
+  1: "Round 1",
+  2: "Round 2",
+  3: "Conference Final",
+  4: "Stanley Cup Final",
+};
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -24,7 +38,6 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  // Get all user's group memberships with full data
   const memberships = await prisma.groupMember.findMany({
     where: { userId: user.id },
     include: {
@@ -37,9 +50,7 @@ export default async function DashboardPage() {
             include: {
               user: true,
               team: true,
-              series: {
-                include: { homeTeam: true, awayTeam: true, winner: true },
-              },
+              series: { include: { homeTeam: true, awayTeam: true, winner: true } },
             },
           },
         },
@@ -48,7 +59,6 @@ export default async function DashboardPage() {
     orderBy: { joinedAt: "desc" },
   });
 
-  // Split groups by draft status
   const preDraftGroups = memberships.filter(
     (m) =>
       m.group.draftStatus === "OPEN" ||
@@ -61,36 +71,50 @@ export default async function DashboardPage() {
     (m) => m.group.draftStatus === "COMPLETED"
   );
 
-  // Get user's drafted teams across completed groups
-  const myPicks = await prisma.pick.findMany({
-    where: { userId: user.id },
-    include: { team: true, group: true },
-  });
-  const myTeamIds = myPicks.map((p) => p.teamId);
+  // Build a single set of all team IDs the user has drafted (across all post-draft groups)
+  const myAllDraftedTeamIds = new Set<string>();
+  for (const m of postDraftGroups) {
+    for (const p of m.group.picks) {
+      if (p.userId === user.id) myAllDraftedTeamIds.add(p.teamId);
+    }
+  }
 
-  // Get active series involving user's teams
-  const activeMatchups =
-    myTeamIds.length > 0
-      ? await prisma.series.findMany({
-          where: {
-            status: "IN_PROGRESS",
-            OR: [
-              { homeTeamId: { in: myTeamIds } },
-              { awayTeamId: { in: myTeamIds } },
-            ],
-          },
-          include: { homeTeam: true, awayTeam: true },
-          orderBy: { round: "asc" },
+  // Latest chirp per group
+  const postDraftGroupIds = postDraftGroups.map((m) => m.group.id);
+  const chirps =
+    postDraftGroupIds.length > 0
+      ? await prisma.chirp.findMany({
+          where: { groupId: { in: postDraftGroupIds } },
+          orderBy: { generatedAt: "desc" },
         })
       : [];
+  const chirpByGroup = new Map<string, (typeof chirps)[number]>();
+  for (const c of chirps) {
+    if (!chirpByGroup.has(c.groupId)) chirpByGroup.set(c.groupId, c);
+  }
 
-  // Get all series for schedule
+  // All series for bracket display
   const allSeries = await prisma.series.findMany({
     include: { homeTeam: true, awayTeam: true, winner: true },
     orderBy: [{ round: "asc" }, { seriesLetter: "asc" }],
   });
 
-  // Get playoff teams for seeding preview
+  // Playoff games (yesterday + 6 days forward)
+  const yesterday = new Date();
+  yesterday.setUTCHours(0, 0, 0, 0);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const sevenDaysOut = new Date(yesterday);
+  sevenDaysOut.setUTCDate(sevenDaysOut.getUTCDate() + 7);
+  const allGames = await prisma.nhlGame.findMany({
+    where: {
+      gameType: 3,
+      startTime: { gte: yesterday, lt: sevenDaysOut },
+    },
+    include: { homeTeam: true, awayTeam: true },
+    orderBy: { startTime: "asc" },
+  });
+
+  // Playoff teams for fallback display
   const playoffTeams = await prisma.nhlTeam.findMany({
     where: { isPlayoffTeam: true },
     orderBy: [{ conference: "asc" }, { seed: "asc" }],
@@ -114,7 +138,6 @@ export default async function DashboardPage() {
     COMPLETED: "text-muted-foreground",
   };
 
-  // No groups empty state
   if (memberships.length === 0) {
     return (
       <div className="space-y-6">
@@ -166,13 +189,10 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* ============================================ */}
-      {/* PRE-DRAFT GROUPS                             */}
-      {/* ============================================ */}
+      {/* PRE-DRAFT GROUPS */}
       {preDraftGroups.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">Your Groups</h2>
-
           {preDraftGroups.map(({ group }) => {
             const isCommissioner = group.commissionerId === user.id;
             const draftTimeIso = group.draftScheduledAt
@@ -185,7 +205,10 @@ export default async function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <CardTitle className="text-lg">
-                        <Link href={`/groups/${group.id}`} className="hover:text-primary transition-colors">
+                        <Link
+                          href={`/groups/${group.id}`}
+                          className="hover:text-primary transition-colors"
+                        >
                           {group.name}
                         </Link>
                       </CardTitle>
@@ -212,12 +235,10 @@ export default async function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Invite code - only when open */}
                   {group.draftStatus === "OPEN" && (
                     <InviteCard inviteCode={group.inviteCode} />
                   )}
 
-                  {/* Draft time */}
                   {draftTimeIso && (
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-muted-foreground">Draft:</span>
@@ -225,7 +246,6 @@ export default async function DashboardPage() {
                     </div>
                   )}
 
-                  {/* Draft notes */}
                   {group.draftNotes && (
                     <div className="text-sm p-2 rounded bg-muted/50">
                       <span className="text-muted-foreground">Notes: </span>
@@ -233,7 +253,6 @@ export default async function DashboardPage() {
                     </div>
                   )}
 
-                  {/* Active draft link */}
                   {(group.draftStatus === "WAITING" ||
                     group.draftStatus === "COUNTDOWN" ||
                     group.draftStatus === "LIVE" ||
@@ -244,16 +263,17 @@ export default async function DashboardPage() {
                     >
                       {group.draftStatus === "WAITING"
                         ? "Enter Waiting Room"
-                        : group.draftStatus === "LIVE" || group.draftStatus === "PAUSED"
+                        : group.draftStatus === "LIVE" ||
+                            group.draftStatus === "PAUSED"
                           ? "Join Live Draft"
                           : "Draft starting…"}
                     </Link>
                   )}
 
-                  {/* Members list */}
                   <div>
                     <p className="text-sm font-medium mb-2">
-                      Members ({group.members.length}{group.maxPlayers ? ` of ${group.maxPlayers}` : ""})
+                      Members ({group.members.length}
+                      {group.maxPlayers ? ` of ${group.maxPlayers}` : ""})
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                       {group.members.map((m) => (
@@ -263,7 +283,9 @@ export default async function DashboardPage() {
                         >
                           <span
                             className={
-                              m.userId === user.id ? "text-primary font-medium" : ""
+                              m.userId === user.id
+                                ? "text-primary font-medium"
+                                : ""
                             }
                           >
                             {m.user.displayName}
@@ -286,458 +308,587 @@ export default async function DashboardPage() {
               </Card>
             );
           })}
+        </div>
+      )}
 
-          {/* Projected playoff bracket */}
-          {allSeries.length > 0 ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Projected Bracket</CardTitle>
-                <CardDescription>
-                  First round matchups based on current standings
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {["Eastern", "Western"].map((conf) => {
-                    // Series A-D are Eastern, E-H are Western
-                    const confLetters =
-                      conf === "Eastern"
-                        ? ["A", "B", "C", "D"]
-                        : ["E", "F", "G", "H"];
-                    const confSeries = allSeries.filter(
-                      (s) =>
-                        s.round === 1 &&
-                        confLetters.includes(s.seriesLetter)
-                    );
+      {preDraftGroups.length > 0 && postDraftGroups.length > 0 && <Separator />}
 
-                    return (
-                      <div key={conf}>
-                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
-                          {conf} Conference
-                        </h3>
-                        <div className="space-y-2">
-                          {confSeries.map((series) => (
+      {/* POST-DRAFT GROUPS — one self-contained card per group */}
+      {postDraftGroups.length > 0 && (
+        <div className="space-y-8">
+          {postDraftGroups.map(({ group }) => {
+            const groupTeamIds = new Set(group.picks.map((p) => p.teamId));
+            const myPicksInGroup = group.picks.filter(
+              (p) => p.userId === user.id
+            );
+            const myTeamIdsInGroup = new Set(
+              myPicksInGroup.map((p) => p.teamId)
+            );
+
+            // Matchups: any series (UPCOMING or IN_PROGRESS) where one of my drafted teams plays
+            const myMatchups = allSeries.filter(
+              (s) =>
+                (s.status === "UPCOMING" || s.status === "IN_PROGRESS") &&
+                (myTeamIdsInGroup.has(s.homeTeamId) ||
+                  myTeamIdsInGroup.has(s.awayTeamId))
+            );
+
+            // Standings
+            const standings = group.members
+              .map((m) => ({
+                userId: m.userId,
+                displayName: m.user.displayName,
+                totalPoints: group.points
+                  .filter((p) => p.userId === m.userId)
+                  .reduce((sum, p) => sum + p.pointsAwarded, 0),
+                teamCount: group.picks.filter((p) => p.userId === m.userId)
+                  .length,
+              }))
+              .sort((a, b) => b.totalPoints - a.totalPoints);
+
+            const lastUpdate =
+              group.points.length > 0
+                ? new Date(
+                    Math.max(
+                      ...group.points.map((p) => new Date(p.createdAt).getTime())
+                    )
+                  )
+                : null;
+
+            const groupChirp = chirpByGroup.get(group.id);
+
+            return (
+              <Card key={group.id} className="overflow-hidden">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-xl">
+                      <Link
+                        href={`/groups/${group.id}`}
+                        className="hover:text-primary transition-colors"
+                      >
+                        {group.name}
+                      </Link>
+                    </CardTitle>
+                    <Link
+                      href={`/groups/${group.id}`}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      View group →
+                    </Link>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Chirp of the Day */}
+                  {groupChirp && (
+                    <ChirpCard
+                      chirp={{
+                        text: groupChirp.text,
+                        generatedAt: groupChirp.generatedAt.toISOString(),
+                      }}
+                    />
+                  )}
+
+                  {/* Your Matchups */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">
+                      Your Matchups
+                    </h3>
+                    {myMatchups.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-3 px-3 rounded-lg border border-dashed">
+                        None of your teams are currently scheduled in an active
+                        series.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {myMatchups.map((s) => {
+                          const myIsHome = myTeamIdsInGroup.has(s.homeTeamId);
+                          const myTeam = myIsHome ? s.homeTeam : s.awayTeam;
+                          const oppTeam = myIsHome ? s.awayTeam : s.homeTeam;
+                          const myWins = myIsHome ? s.homeWins : s.awayWins;
+                          const oppWins = myIsHome ? s.awayWins : s.homeWins;
+
+                          // Who in the group owns the opposing team?
+                          const oppPick = group.picks.find(
+                            (p) => p.teamId === oppTeam.id
+                          );
+                          const oppLabel = oppPick
+                            ? oppPick.userId === user.id
+                              ? "you"
+                              : oppPick.user.displayName
+                            : groupTeamIds.has(oppTeam.id)
+                              ? "another member"
+                              : "undrafted";
+
+                          const isLive = s.status === "IN_PROGRESS";
+
+                          return (
                             <div
-                              key={series.id}
-                              className="flex items-center gap-2 p-2 rounded-lg border border-border"
+                              key={s.id}
+                              className="flex items-center justify-between p-3 rounded-lg border border-border"
                             >
-                              <div className="flex-1 flex items-center gap-2">
-                                <div className="relative w-6 h-6 shrink-0">
-                                  <Image
-                                    src={
-                                      series.homeTeam.darkLogoUrl ||
-                                      series.homeTeam.logoUrl
-                                    }
-                                    alt={series.homeTeam.abbreviation}
-                                    fill
-                                    className="object-contain"
-                                    unoptimized
-                                  />
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="relative w-7 h-7">
+                                    <Image
+                                      src={
+                                        myTeam.darkLogoUrl || myTeam.logoUrl
+                                      }
+                                      alt={myTeam.abbreviation}
+                                      fill
+                                      className="object-contain"
+                                      unoptimized
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {myTeam.abbreviation}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Your team
+                                    </p>
+                                  </div>
                                 </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium truncate">
-                                    {series.homeTeam.name}
+                                <div className="text-center px-2">
+                                  <p className="text-base font-bold tabular-nums">
+                                    {myWins} - {oppWins}
                                   </p>
                                   <p className="text-[10px] text-muted-foreground">
-                                    #{series.homeSeed} seed
+                                    {ROUND_LABEL[s.round] || `R${s.round}`}
                                   </p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="relative w-7 h-7">
+                                    <Image
+                                      src={
+                                        oppTeam.darkLogoUrl || oppTeam.logoUrl
+                                      }
+                                      alt={oppTeam.abbreviation}
+                                      fill
+                                      className="object-contain"
+                                      unoptimized
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {oppTeam.abbreviation}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground truncate max-w-[80px]">
+                                      {oppLabel}
+                                    </p>
+                                  </div>
                                 </div>
                               </div>
-
-                              <span className="text-xs text-muted-foreground font-medium shrink-0">
-                                vs
-                              </span>
-
-                              <div className="flex-1 flex items-center gap-2 justify-end text-right">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium truncate">
-                                    {series.awayTeam.name}
-                                  </p>
-                                  <p className="text-[10px] text-muted-foreground">
-                                    #{series.awaySeed} seed
-                                  </p>
-                                </div>
-                                <div className="relative w-6 h-6 shrink-0">
-                                  <Image
-                                    src={
-                                      series.awayTeam.darkLogoUrl ||
-                                      series.awayTeam.logoUrl
-                                    }
-                                    alt={series.awayTeam.abbreviation}
-                                    fill
-                                    className="object-contain"
-                                    unoptimized
-                                  />
-                                </div>
-                              </div>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  isLive
+                                    ? "text-green-500 border-green-500/30 text-[10px]"
+                                    : "text-muted-foreground text-[10px]"
+                                }
+                              >
+                                {isLive ? "Live" : "Upcoming"}
+                              </Badge>
                             </div>
-                          ))}
-                        </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          ) : playoffTeams.length > 0 ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Playoff Teams</CardTitle>
-                <CardDescription>
-                  The 16 teams available in the draft. Sync NHL data from
-                  group settings to see projected matchups.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {["Eastern", "Western"].map((conf) => {
-                    const confTeams = playoffTeams.filter(
-                      (t) => t.conference === conf
-                    );
-                    return (
-                      <div key={conf}>
-                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                          {conf} Conference
-                        </h3>
-                        <div className="space-y-1">
-                          {confTeams.map((team) => (
-                            <div
-                              key={team.id}
-                              className="flex items-center gap-2 py-1 text-sm"
-                            >
-                              <span className="text-muted-foreground w-4 text-right text-xs">
-                                {team.seed}
-                              </span>
-                              <div className="relative w-5 h-5">
+                    )}
+                  </div>
+
+                  {/* Standings */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold">Standings</h3>
+                      {lastUpdate && (
+                        <span className="text-[10px] text-muted-foreground">
+                          Updated{" "}
+                          {lastUpdate.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      {standings.map((m, idx) => (
+                        <div
+                          key={m.userId}
+                          className={`flex items-center justify-between py-1.5 px-2 rounded text-sm ${
+                            m.userId === user.id
+                              ? "bg-primary/10 font-medium"
+                              : ""
+                          }`}
+                        >
+                          <span>
+                            <span className="text-muted-foreground w-5 inline-block">
+                              {idx + 1}.
+                            </span>{" "}
+                            {m.displayName}
+                            {m.userId === user.id && (
+                              <span className="text-primary ml-1">(you)</span>
+                            )}
+                          </span>
+                          <span className="font-bold tabular-nums">
+                            {m.totalPoints} pts
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* SHARED: Bracket */}
+      {allSeries.length > 0 ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Bracket</CardTitle>
+            <CardDescription>
+              First round matchups and current series scores
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {(["Eastern", "Western"] as const).map((conf) => {
+                const confLetters =
+                  conf === "Eastern"
+                    ? ["A", "B", "C", "D"]
+                    : ["E", "F", "G", "H"];
+                const confSeries = allSeries.filter(
+                  (s) => s.round === 1 && confLetters.includes(s.seriesLetter)
+                );
+                return (
+                  <div key={conf}>
+                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+                      {conf} Conference
+                    </h3>
+                    <div className="space-y-2">
+                      {confSeries.map((s) => {
+                        const hasScore = s.homeWins + s.awayWins > 0;
+                        return (
+                          <div
+                            key={s.id}
+                            className="flex items-center gap-2 p-2 rounded-lg border border-border"
+                          >
+                            <div className="flex-1 flex items-center gap-2 min-w-0">
+                              <div className="relative w-6 h-6 shrink-0">
                                 <Image
-                                  src={team.darkLogoUrl || team.logoUrl}
-                                  alt={team.abbreviation}
+                                  src={
+                                    s.homeTeam.darkLogoUrl ||
+                                    s.homeTeam.logoUrl
+                                  }
+                                  alt={s.homeTeam.abbreviation}
                                   fill
                                   className="object-contain"
                                   unoptimized
                                 />
                               </div>
-                              <span>{team.name}</span>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {s.homeTeam.name}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  #{s.homeSeed}
+                                </p>
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
-        </div>
-      )}
-
-      {/* Separator between pre and post draft sections */}
-      {preDraftGroups.length > 0 && postDraftGroups.length > 0 && (
-        <Separator />
-      )}
-
-      {/* ============================================ */}
-      {/* POST-DRAFT GROUPS                            */}
-      {/* ============================================ */}
-      {postDraftGroups.length > 0 && (
-        <div className="space-y-4">
-          {/* YOUR MATCHUPS */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Your Matchups</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {activeMatchups.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  No active matchups right now. Your teams will show here when
-                  they&apos;re playing in a series.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {activeMatchups.map((series) => {
-                    const isMyHomeTeam = myTeamIds.includes(series.homeTeamId);
-                    const myTeam = isMyHomeTeam
-                      ? series.homeTeam
-                      : series.awayTeam;
-                    const theirTeam = isMyHomeTeam
-                      ? series.awayTeam
-                      : series.homeTeam;
-
-                    const relevantPick = myPicks.find(
-                      (p) => p.teamId === myTeam.id
-                    );
-                    const groupForMatchup = relevantPick
-                      ? memberships.find(
-                          (m) => m.group.id === relevantPick.groupId
-                        )
-                      : null;
-                    const opponentPick = groupForMatchup?.group.picks.find(
-                      (p) => p.teamId === theirTeam.id
-                    );
-
-                    return (
-                      <div
-                        key={series.id}
-                        className="flex items-center justify-between p-3 rounded-lg border border-border"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-8 h-8">
-                              <Image
-                                src={myTeam.darkLogoUrl || myTeam.logoUrl}
-                                alt={myTeam.abbreviation}
-                                fill
-                                className="object-contain"
-                                unoptimized
-                              />
+                            <div className="text-center shrink-0 px-1">
+                              {hasScore ? (
+                                <p className="text-sm font-bold tabular-nums">
+                                  {s.homeWins}-{s.awayWins}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  vs
+                                </p>
+                              )}
                             </div>
-                            <div>
-                              <p className="text-sm font-medium">
-                                {myTeam.abbreviation}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">
-                                Your team
-                              </p>
+                            <div className="flex-1 flex items-center gap-2 justify-end text-right min-w-0">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {s.awayTeam.name}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  #{s.awaySeed}
+                                </p>
+                              </div>
+                              <div className="relative w-6 h-6 shrink-0">
+                                <Image
+                                  src={
+                                    s.awayTeam.darkLogoUrl ||
+                                    s.awayTeam.logoUrl
+                                  }
+                                  alt={s.awayTeam.abbreviation}
+                                  fill
+                                  className="object-contain"
+                                  unoptimized
+                                />
+                              </div>
                             </div>
                           </div>
-
-                          <div className="text-center px-3">
-                            <p className="text-lg font-bold">
-                              {series.homeWins} - {series.awayWins}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              Round {series.round}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-8 h-8">
-                              <Image
-                                src={
-                                  theirTeam.darkLogoUrl || theirTeam.logoUrl
-                                }
-                                alt={theirTeam.abbreviation}
-                                fill
-                                className="object-contain"
-                                unoptimized
-                              />
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium">
-                                {theirTeam.abbreviation}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">
-                                {opponentPick
-                                  ? opponentPick.user.displayName
-                                  : "Undrafted"}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {groupForMatchup && (
-                          <Badge variant="outline" className="text-[10px]">
-                            {groupForMatchup.group.name}
-                          </Badge>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* STANDINGS */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Standings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                {postDraftGroups.map(({ group }) => {
-                  const standings = group.members
-                    .map((m) => ({
-                      userId: m.userId,
-                      displayName: m.user.displayName,
-                      totalPoints: group.points
-                        .filter((p) => p.userId === m.userId)
-                        .reduce((sum, p) => sum + p.pointsAwarded, 0),
-                      teamCount: group.picks.filter(
-                        (p) => p.userId === m.userId
-                      ).length,
-                    }))
-                    .sort((a, b) => b.totalPoints - a.totalPoints);
-
-                  return (
-                    <div key={group.id}>
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-medium">{group.name}</h3>
-                        <Link
-                          href={`/groups/${group.id}`}
-                          className="text-xs text-primary hover:underline"
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      ) : playoffTeams.length > 0 ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Playoff Teams</CardTitle>
+            <CardDescription>
+              The 16 teams available in the draft
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {(["Eastern", "Western"] as const).map((conf) => (
+                <div key={conf}>
+                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                    {conf} Conference
+                  </h3>
+                  <div className="space-y-1">
+                    {playoffTeams
+                      .filter((t) => t.conference === conf)
+                      .map((team) => (
+                        <div
+                          key={team.id}
+                          className="flex items-center gap-2 py-1 text-sm"
                         >
-                          View details
-                        </Link>
-                      </div>
-                      <div className="space-y-1">
-                        {standings.map((member, idx) => (
+                          <span className="text-muted-foreground w-4 text-right text-xs">
+                            {team.seed}
+                          </span>
+                          <div className="relative w-5 h-5">
+                            <Image
+                              src={team.darkLogoUrl || team.logoUrl}
+                              alt={team.abbreviation}
+                              fill
+                              className="object-contain"
+                              unoptimized
+                            />
+                          </div>
+                          <span>{team.name}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* SHARED: Playoff Schedule (date-based) */}
+      <PlayoffScheduleCard
+        games={allGames}
+        myDraftedTeamIds={myAllDraftedTeamIds}
+      />
+    </div>
+  );
+}
+
+// =====================================================
+// Playoff Schedule sub-component (server-rendered)
+// =====================================================
+
+function PlayoffScheduleCard({
+  games,
+  myDraftedTeamIds,
+}: {
+  games: GameWithTeams[];
+  myDraftedTeamIds: Set<string>;
+}) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const buckets = new Map<string, GameWithTeams[]>();
+
+  for (const g of games) {
+    const startLocal = new Date(g.startTime);
+    const dayLocal = new Date(
+      startLocal.getFullYear(),
+      startLocal.getMonth(),
+      startLocal.getDate()
+    );
+    const diffDays = Math.round(
+      (dayLocal.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)
+    );
+
+    let label: string;
+    if (diffDays === -1) label = "Last night";
+    else if (diffDays === 0) label = "Today";
+    else if (diffDays === 1) label = "Tomorrow";
+    else if (diffDays > 1 && diffDays <= 6) {
+      label = startLocal.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+      });
+    } else continue; // skip games outside the window
+
+    if (!buckets.has(label)) buckets.set(label, []);
+    buckets.get(label)!.push(g);
+  }
+
+  const orderedLabels = ["Last night", "Today", "Tomorrow"];
+  const futureLabels = Array.from(buckets.keys())
+    .filter((l) => !orderedLabels.includes(l))
+    .sort((a, b) => {
+      // Sort by the first game's startTime in each bucket
+      const ag = buckets.get(a)![0];
+      const bg = buckets.get(b)![0];
+      return new Date(ag.startTime).getTime() - new Date(bg.startTime).getTime();
+    });
+  const allLabels = [
+    ...orderedLabels.filter((l) => buckets.has(l)),
+    ...futureLabels.slice(0, 2), // limit to ~2 more days = next 3 days total
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg">Playoff Schedule</CardTitle>
+        <CardDescription>
+          Last night&apos;s results and the next few days. Games involving your
+          drafted teams are highlighted.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {allLabels.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No playoff games in the next few days.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {allLabels.map((label) => {
+              const dayGames = buckets.get(label) || [];
+              return (
+                <div key={label}>
+                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                    {label}
+                  </h3>
+                  {dayGames.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">
+                      No games.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {dayGames.map((g) => {
+                        const isFinal = g.gameState === "OFF";
+                        const isLive =
+                          g.gameState === "LIVE" || g.gameState === "CRIT";
+                        const involvesMyTeam =
+                          myDraftedTeamIds.has(g.homeTeamId) ||
+                          myDraftedTeamIds.has(g.awayTeamId);
+                        const startTimeLabel = new Date(
+                          g.startTime
+                        ).toLocaleTimeString("en-US", {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        });
+
+                        return (
                           <div
-                            key={member.userId}
-                            className={`flex items-center justify-between py-1.5 px-2 rounded text-sm ${
-                              member.userId === user.id
-                                ? "bg-primary/10 font-medium"
+                            key={g.id}
+                            className={`flex items-center justify-between py-2 px-2 rounded text-sm ${
+                              involvesMyTeam
+                                ? "bg-primary/5 border border-primary/20"
                                 : ""
                             }`}
                           >
-                            <span>
-                              <span className="text-muted-foreground w-5 inline-block">
-                                {idx + 1}.
-                              </span>{" "}
-                              {member.displayName}
-                              {member.userId === user.id && (
-                                <span className="text-primary ml-1">
-                                  (you)
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="relative w-5 h-5 shrink-0">
+                                <Image
+                                  src={
+                                    g.awayTeam.darkLogoUrl ||
+                                    g.awayTeam.logoUrl
+                                  }
+                                  alt={g.awayTeam.abbreviation}
+                                  fill
+                                  className="object-contain"
+                                  unoptimized
+                                />
+                              </div>
+                              <span
+                                className={
+                                  isFinal &&
+                                  (g.awayScore ?? 0) > (g.homeScore ?? 0)
+                                    ? "font-bold"
+                                    : ""
+                                }
+                              >
+                                {g.awayTeam.abbreviation}
+                              </span>
+                              <span className="text-muted-foreground text-xs">
+                                @
+                              </span>
+                              <span
+                                className={
+                                  isFinal &&
+                                  (g.homeScore ?? 0) > (g.awayScore ?? 0)
+                                    ? "font-bold"
+                                    : ""
+                                }
+                              >
+                                {g.homeTeam.abbreviation}
+                              </span>
+                              <div className="relative w-5 h-5 shrink-0">
+                                <Image
+                                  src={
+                                    g.homeTeam.darkLogoUrl ||
+                                    g.homeTeam.logoUrl
+                                  }
+                                  alt={g.homeTeam.abbreviation}
+                                  fill
+                                  className="object-contain"
+                                  unoptimized
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isFinal ? (
+                                <span className="font-mono text-sm tabular-nums">
+                                  {g.awayScore} - {g.homeScore}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  {startTimeLabel}
                                 </span>
                               )}
-                            </span>
-                            <span className="font-bold">
-                              {member.totalPoints} pts
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* SCHEDULE */}
-          {allSeries.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Playoff Schedule</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[1, 2, 3, 4].map((round) => {
-                    const roundSeries = allSeries.filter(
-                      (s) => s.round === round
-                    );
-                    if (roundSeries.length === 0) return null;
-
-                    const roundNames: Record<number, string> = {
-                      1: "Round 1",
-                      2: "Round 2",
-                      3: "Conference Finals",
-                      4: "Stanley Cup Final",
-                    };
-
-                    return (
-                      <div key={round}>
-                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                          {roundNames[round]}
-                        </h3>
-                        <div className="space-y-1">
-                          {roundSeries.map((series) => {
-                            const isMyTeamInvolved =
-                              myTeamIds.includes(series.homeTeamId) ||
-                              myTeamIds.includes(series.awayTeamId);
-
-                            return (
-                              <div
-                                key={series.id}
-                                className={`flex items-center justify-between py-2 px-2 rounded text-sm ${
-                                  isMyTeamInvolved
-                                    ? "bg-primary/5 border border-primary/20"
-                                    : ""
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] ${
+                                  isFinal
+                                    ? "text-muted-foreground"
+                                    : isLive
+                                      ? "text-green-500 border-green-500/30"
+                                      : "text-yellow-500 border-yellow-500/30"
                                 }`}
                               >
-                                <div className="flex items-center gap-2">
-                                  <div className="relative w-5 h-5">
-                                    <Image
-                                      src={
-                                        series.homeTeam.darkLogoUrl ||
-                                        series.homeTeam.logoUrl
-                                      }
-                                      alt={series.homeTeam.abbreviation}
-                                      fill
-                                      className="object-contain"
-                                      unoptimized
-                                    />
-                                  </div>
-                                  <span
-                                    className={
-                                      series.winner &&
-                                      series.winner.id === series.homeTeamId
-                                        ? "font-bold"
-                                        : ""
-                                    }
-                                  >
-                                    {series.homeTeam.abbreviation}
-                                  </span>
-                                  <span className="text-muted-foreground">
-                                    vs
-                                  </span>
-                                  <span
-                                    className={
-                                      series.winner &&
-                                      series.winner.id === series.awayTeamId
-                                        ? "font-bold"
-                                        : ""
-                                    }
-                                  >
-                                    {series.awayTeam.abbreviation}
-                                  </span>
-                                  <div className="relative w-5 h-5">
-                                    <Image
-                                      src={
-                                        series.awayTeam.darkLogoUrl ||
-                                        series.awayTeam.logoUrl
-                                      }
-                                      alt={series.awayTeam.abbreviation}
-                                      fill
-                                      className="object-contain"
-                                      unoptimized
-                                    />
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono text-sm">
-                                    {series.homeWins}-{series.awayWins}
-                                  </span>
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-[10px] ${
-                                      series.status === "COMPLETED"
-                                        ? "text-muted-foreground"
-                                        : series.status === "IN_PROGRESS"
-                                        ? "text-green-500 border-green-500/30"
-                                        : "text-yellow-500 border-yellow-500/30"
-                                    }`}
-                                  >
-                                    {series.status === "COMPLETED"
-                                      ? "Final"
-                                      : series.status === "IN_PROGRESS"
-                                      ? "Live"
-                                      : "Upcoming"}
-                                  </Badge>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+                                {isFinal
+                                  ? "Final"
+                                  : isLive
+                                    ? "Live"
+                                    : "Upcoming"}
+                              </Badge>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-    </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import {
   fetchPlayoffBracket,
+  fetchScheduleForDate,
   fetchStandings,
   getCurrentSeasonYear,
 } from "./api";
@@ -11,6 +12,7 @@ export interface SyncResult {
   teamsUpserted: number;
   seriesUpserted: number;
   seriesCompleted: string[];
+  gamesUpserted: number;
   errors: string[];
 }
 
@@ -19,6 +21,7 @@ export async function syncNhlData(): Promise<SyncResult> {
     teamsUpserted: 0,
     seriesUpserted: 0,
     seriesCompleted: [],
+    gamesUpserted: 0,
     errors: [],
   };
 
@@ -104,6 +107,13 @@ export async function syncNhlData(): Promise<SyncResult> {
       result.errors.push(
         `Expected 16 playoff teams after sync, got ${playoffCount}`
       );
+    }
+
+    // Sync games (yesterday + 6 days forward) — best effort, don't fail full sync
+    try {
+      await syncGames(result);
+    } catch (e) {
+      result.errors.push(`Game sync failed: ${e}`);
     }
 
     // Log sync
@@ -202,6 +212,89 @@ async function upsertSeries(
 
     if (completedSeries) {
       await awardPointsForSeries(completedSeries.id);
+    }
+  }
+}
+
+/**
+ * Sync playoff games for the date window starting yesterday (UTC).
+ * /v1/schedule/{date} returns a 7-day window. Calling with yesterday's date
+ * gives us yesterday's results + 6 future days, all in one API call.
+ */
+async function syncGames(result: SyncResult): Promise<void> {
+  // Yesterday in UTC, formatted YYYY-MM-DD
+  const yesterday = new Date();
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const dateStr = yesterday.toISOString().slice(0, 10);
+
+  const schedule = await fetchScheduleForDate(dateStr);
+
+  // Build a map of nhlApiId → team.id for quick lookup
+  const playoffTeams = await prisma.nhlTeam.findMany({
+    where: { isPlayoffTeam: true },
+    select: { id: true, nhlApiId: true },
+  });
+  const teamIdByNhlId = new Map(
+    playoffTeams.map((t) => [t.nhlApiId, t.id])
+  );
+
+  // Build a map of (homeTeamId, awayTeamId) sorted → seriesLetter for badge
+  const allSeries = await prisma.series.findMany({
+    select: {
+      seriesLetter: true,
+      homeTeamId: true,
+      awayTeamId: true,
+    },
+  });
+  const seriesByTeamPair = new Map<string, string>();
+  for (const s of allSeries) {
+    const key = [s.homeTeamId, s.awayTeamId].sort().join(":");
+    seriesByTeamPair.set(key, s.seriesLetter);
+  }
+
+  for (const day of schedule.gameWeek) {
+    for (const g of day.games) {
+      // Filter to playoff games only
+      if (g.gameType !== 3) continue;
+
+      const homeId = teamIdByNhlId.get(g.homeTeam.id);
+      const awayId = teamIdByNhlId.get(g.awayTeam.id);
+      // Skip games involving non-playoff teams (shouldn't happen for gameType=3 but defensive)
+      if (!homeId || !awayId) continue;
+
+      const seriesKey = [homeId, awayId].sort().join(":");
+      const seriesLetter = seriesByTeamPair.get(seriesKey) || null;
+
+      try {
+        await prisma.nhlGame.upsert({
+          where: { nhlGameId: g.id },
+          update: {
+            seriesLetter,
+            homeTeamId: homeId,
+            awayTeamId: awayId,
+            homeScore: g.homeTeam.score ?? null,
+            awayScore: g.awayTeam.score ?? null,
+            startTime: new Date(g.startTimeUTC),
+            gameState: g.gameState,
+            gameType: g.gameType,
+            syncedAt: new Date(),
+          },
+          create: {
+            nhlGameId: g.id,
+            seriesLetter,
+            homeTeamId: homeId,
+            awayTeamId: awayId,
+            homeScore: g.homeTeam.score ?? null,
+            awayScore: g.awayTeam.score ?? null,
+            startTime: new Date(g.startTimeUTC),
+            gameState: g.gameState,
+            gameType: g.gameType,
+          },
+        });
+        result.gamesUpserted++;
+      } catch (e) {
+        result.errors.push(`Failed to upsert game ${g.id}: ${e}`);
+      }
     }
   }
 }

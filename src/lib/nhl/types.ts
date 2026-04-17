@@ -69,3 +69,30 @@ export interface NhlStandingsResponse {
   wildCardIndicator: boolean;
   standings: NhlStandingsTeam[];
 }
+
+// Schedule endpoint — /v1/schedule/{YYYY-MM-DD} returns a 7-day window
+export interface NhlScheduleGameTeam {
+  id: number;
+  abbrev: string;
+  score?: number;
+  logo?: string;
+  darkLogo?: string;
+}
+
+export interface NhlScheduleGame {
+  id: number;
+  gameType: number; // 1 = preseason, 2 = regular, 3 = playoffs
+  startTimeUTC: string;
+  gameState: string; // FUT, LIVE, OFF, CRIT
+  awayTeam: NhlScheduleGameTeam;
+  homeTeam: NhlScheduleGameTeam;
+}
+
+export interface NhlScheduleDay {
+  date: string; // YYYY-MM-DD
+  games: NhlScheduleGame[];
+}
+
+export interface NhlScheduleResponse {
+  gameWeek: NhlScheduleDay[];
+}

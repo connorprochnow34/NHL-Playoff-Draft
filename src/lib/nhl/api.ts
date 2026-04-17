@@ -8,7 +8,11 @@
  * Note: /now endpoints return 307 redirects. fetch() follows them by default.
  */
 
-import type { NhlBracketResponse, NhlStandingsResponse } from "./types";
+import type {
+  NhlBracketResponse,
+  NhlScheduleResponse,
+  NhlStandingsResponse,
+} from "./types";
 
 const BASE_URL =
   process.env.NHL_API_BASE_URL || "https://api-web.nhle.com";
@@ -41,6 +45,16 @@ export async function fetchPlayoffBracket(
  */
 export async function fetchStandings(): Promise<NhlStandingsResponse> {
   return fetchNhl<NhlStandingsResponse>("/v1/standings/now");
+}
+
+/**
+ * Fetch the 7-day schedule starting from the given date.
+ * @param date - YYYY-MM-DD format. Pass yesterday to cover yesterday + 6 future days.
+ */
+export async function fetchScheduleForDate(
+  date: string
+): Promise<NhlScheduleResponse> {
+  return fetchNhl<NhlScheduleResponse>(`/v1/schedule/${date}`);
 }
 
 /**

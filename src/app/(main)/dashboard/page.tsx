@@ -195,31 +195,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* CHIRP OF THE DAY (one per completed group) */}
-      {postDraftGroups.length > 0 && chirps.length > 0 && (
-        <div className="space-y-3">
-          {postDraftGroups.map(({ group }) => {
-            const groupChirp = chirpByGroup.get(group.id);
-            if (!groupChirp) return null;
-            return (
-              <div key={group.id} className="space-y-1">
-                {postDraftGroups.length > 1 && (
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide pl-1">
-                    {group.name}
-                  </p>
-                )}
-                <ChirpCard
-                  chirp={{
-                    text: groupChirp.text,
-                    generatedAt: groupChirp.generatedAt.toISOString(),
-                  }}
-                />
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* PRE-DRAFT GROUPS */}
       {preDraftGroups.length > 0 && (
         <div className="space-y-4">
@@ -364,7 +339,18 @@ export default async function DashboardPage() {
                   myTeamIdsInGroup.has(s.awayTeamId))
             );
 
-            // Standings
+            // Eliminated team IDs: any team that lost a completed series
+            const eliminatedTeamIds = new Set<string>();
+            for (const s of allSeries) {
+              if (s.status === "COMPLETED" && s.winnerTeamId) {
+                if (s.winnerTeamId !== s.homeTeamId)
+                  eliminatedTeamIds.add(s.homeTeamId);
+                if (s.winnerTeamId !== s.awayTeamId)
+                  eliminatedTeamIds.add(s.awayTeamId);
+              }
+            }
+
+            // Standings, with each member's drafted teams attached
             const standings = group.members
               .map((m) => ({
                 userId: m.userId,
@@ -372,8 +358,16 @@ export default async function DashboardPage() {
                 totalPoints: group.points
                   .filter((p) => p.userId === m.userId)
                   .reduce((sum, p) => sum + p.pointsAwarded, 0),
-                teamCount: group.picks.filter((p) => p.userId === m.userId)
-                  .length,
+                teams: group.picks
+                  .filter((p) => p.userId === m.userId)
+                  .map((p) => ({
+                    id: p.team.id,
+                    abbreviation: p.team.abbreviation,
+                    name: p.team.name,
+                    logoUrl: p.team.logoUrl,
+                    darkLogoUrl: p.team.darkLogoUrl,
+                    eliminated: eliminatedTeamIds.has(p.team.id),
+                  })),
               }))
               .sort((a, b) => b.totalPoints - a.totalPoints);
 
@@ -385,6 +379,8 @@ export default async function DashboardPage() {
                     )
                   )
                 : null;
+
+            const groupChirp = chirpByGroup.get(group.id);
 
             return (
               <Card key={group.id} className="overflow-hidden">
@@ -407,6 +403,16 @@ export default async function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  {/* Chirp of the Day — first thing in each group */}
+                  {groupChirp && (
+                    <ChirpCard
+                      chirp={{
+                        text: groupChirp.text,
+                        generatedAt: groupChirp.generatedAt.toISOString(),
+                      }}
+                    />
+                  )}
+
                   {/* Your Matchups */}
                   <div>
                     <h3 className="text-sm font-semibold mb-2">
@@ -440,73 +446,130 @@ export default async function DashboardPage() {
 
                           const isLive = s.status === "IN_PROGRESS";
 
+                          // Find the next upcoming game for this matchup
+                          const nextGame = allGames
+                            .filter(
+                              (g) =>
+                                g.gameState !== "OFF" &&
+                                ((g.homeTeamId === s.homeTeamId &&
+                                  g.awayTeamId === s.awayTeamId) ||
+                                  (g.homeTeamId === s.awayTeamId &&
+                                    g.awayTeamId === s.homeTeamId))
+                            )
+                            .sort(
+                              (a, b) =>
+                                new Date(a.startTime).getTime() -
+                                new Date(b.startTime).getTime()
+                            )[0];
+
+                          let nextGameLabel: string | null = null;
+                          if (nextGame) {
+                            const startDate = new Date(nextGame.startTime);
+                            const day = startDate.toLocaleDateString("en-US", {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                              timeZone: "America/New_York",
+                            });
+                            const etTime = startDate.toLocaleTimeString(
+                              "en-US",
+                              {
+                                hour: "numeric",
+                                minute: "2-digit",
+                                timeZone: "America/New_York",
+                              }
+                            );
+                            const ctTime = startDate.toLocaleTimeString(
+                              "en-US",
+                              {
+                                hour: "numeric",
+                                minute: "2-digit",
+                                timeZone: "America/Chicago",
+                              }
+                            );
+                            const verb =
+                              nextGame.gameState === "LIVE" ||
+                              nextGame.gameState === "CRIT"
+                                ? "Live now"
+                                : "Next";
+                            nextGameLabel = `${verb}: ${day} · ${etTime} ET / ${ctTime} CT`;
+                          }
+
                           return (
                             <div
                               key={s.id}
-                              className="flex items-center justify-between p-3 rounded-lg border border-border"
+                              className="p-3 rounded-lg border border-border space-y-2"
                             >
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <div className="relative w-7 h-7">
-                                    <Image
-                                      src={
-                                        myTeam.darkLogoUrl || myTeam.logoUrl
-                                      }
-                                      alt={myTeam.abbreviation}
-                                      fill
-                                      className="object-contain"
-                                      unoptimized
-                                    />
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="relative w-7 h-7">
+                                      <Image
+                                        src={
+                                          myTeam.darkLogoUrl || myTeam.logoUrl
+                                        }
+                                        alt={myTeam.abbreviation}
+                                        fill
+                                        className="object-contain"
+                                        unoptimized
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-medium">
+                                        {myTeam.abbreviation}
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        Your team
+                                      </p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-sm font-medium">
-                                      {myTeam.abbreviation}
+                                  <div className="text-center px-2">
+                                    <p className="text-base font-bold tabular-nums">
+                                      {myWins} - {oppWins}
                                     </p>
                                     <p className="text-[10px] text-muted-foreground">
-                                      Your team
+                                      {ROUND_LABEL[s.round] || `R${s.round}`}
                                     </p>
                                   </div>
-                                </div>
-                                <div className="text-center px-2">
-                                  <p className="text-base font-bold tabular-nums">
-                                    {myWins} - {oppWins}
-                                  </p>
-                                  <p className="text-[10px] text-muted-foreground">
-                                    {ROUND_LABEL[s.round] || `R${s.round}`}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <div className="relative w-7 h-7">
-                                    <Image
-                                      src={
-                                        oppTeam.darkLogoUrl || oppTeam.logoUrl
-                                      }
-                                      alt={oppTeam.abbreviation}
-                                      fill
-                                      className="object-contain"
-                                      unoptimized
-                                    />
-                                  </div>
-                                  <div>
-                                    <p className="text-sm font-medium">
-                                      {oppTeam.abbreviation}
-                                    </p>
-                                    <p className="text-[10px] text-muted-foreground truncate max-w-[80px]">
-                                      {oppLabel}
-                                    </p>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="relative w-7 h-7">
+                                      <Image
+                                        src={
+                                          oppTeam.darkLogoUrl ||
+                                          oppTeam.logoUrl
+                                        }
+                                        alt={oppTeam.abbreviation}
+                                        fill
+                                        className="object-contain"
+                                        unoptimized
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-medium">
+                                        {oppTeam.abbreviation}
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground truncate max-w-[80px]">
+                                        {oppLabel}
+                                      </p>
+                                    </div>
                                   </div>
                                 </div>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    isLive
+                                      ? "text-green-500 border-green-500/30 text-[10px]"
+                                      : "text-muted-foreground text-[10px]"
+                                  }
+                                >
+                                  {isLive ? "Live" : "Upcoming"}
+                                </Badge>
                               </div>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  isLive
-                                    ? "text-green-500 border-green-500/30 text-[10px]"
-                                    : "text-muted-foreground text-[10px]"
-                                }
-                              >
-                                {isLive ? "Live" : "Upcoming"}
-                              </Badge>
+                              {nextGameLabel && (
+                                <p className="text-[11px] text-muted-foreground pl-1">
+                                  {nextGameLabel}
+                                </p>
+                              )}
                             </div>
                           );
                         })}
@@ -532,22 +595,45 @@ export default async function DashboardPage() {
                       {standings.map((m, idx) => (
                         <div
                           key={m.userId}
-                          className={`flex items-center justify-between py-1.5 px-2 rounded text-sm ${
+                          className={`flex items-center justify-between gap-2 py-1.5 px-2 rounded text-sm ${
                             m.userId === user.id
                               ? "bg-primary/10 font-medium"
                               : ""
                           }`}
                         >
-                          <span>
-                            <span className="text-muted-foreground w-5 inline-block">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="text-muted-foreground w-5 shrink-0">
                               {idx + 1}.
-                            </span>{" "}
-                            {m.displayName}
-                            {m.userId === user.id && (
-                              <span className="text-primary ml-1">(you)</span>
-                            )}
-                          </span>
-                          <span className="font-bold tabular-nums">
+                            </span>
+                            <span className="truncate shrink-0">
+                              {m.displayName}
+                              {m.userId === user.id && (
+                                <span className="text-primary ml-1">(you)</span>
+                              )}
+                            </span>
+                            <div className="flex items-center gap-1 ml-1 overflow-x-auto">
+                              {m.teams.map((t) => (
+                                <div
+                                  key={t.id}
+                                  className={`relative w-5 h-5 shrink-0 ${
+                                    t.eliminated ? "opacity-30 grayscale" : ""
+                                  }`}
+                                  title={`${t.name}${
+                                    t.eliminated ? " (eliminated)" : ""
+                                  }`}
+                                >
+                                  <Image
+                                    src={t.darkLogoUrl || t.logoUrl}
+                                    alt={t.abbreviation}
+                                    fill
+                                    className="object-contain"
+                                    unoptimized
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <span className="font-bold tabular-nums shrink-0">
                             {m.totalPoints} pts
                           </span>
                         </div>

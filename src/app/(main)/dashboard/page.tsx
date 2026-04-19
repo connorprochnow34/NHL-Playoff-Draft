@@ -16,7 +16,12 @@ import { JoinCodeInput } from "@/components/groups/join-code-input";
 import { InviteCard } from "@/components/groups/invite-card";
 import { DraftTime } from "@/components/groups/draft-time";
 import { ChirpCard } from "@/components/groups/chirp-card";
+import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import type { NhlGame, NhlTeam } from "@prisma/client";
+
+// Force fresh data on every page load — no caching
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type GameWithTeams = NhlGame & {
   homeTeam: NhlTeam;
@@ -176,6 +181,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <AutoRefresh intervalMs={60_000} />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <div className="flex gap-2">
@@ -188,6 +194,31 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* CHIRP OF THE DAY (one per completed group) */}
+      {postDraftGroups.length > 0 && chirps.length > 0 && (
+        <div className="space-y-3">
+          {postDraftGroups.map(({ group }) => {
+            const groupChirp = chirpByGroup.get(group.id);
+            if (!groupChirp) return null;
+            return (
+              <div key={group.id} className="space-y-1">
+                {postDraftGroups.length > 1 && (
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide pl-1">
+                    {group.name}
+                  </p>
+                )}
+                <ChirpCard
+                  chirp={{
+                    text: groupChirp.text,
+                    generatedAt: groupChirp.generatedAt.toISOString(),
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* PRE-DRAFT GROUPS */}
       {preDraftGroups.length > 0 && (
@@ -355,8 +386,6 @@ export default async function DashboardPage() {
                   )
                 : null;
 
-            const groupChirp = chirpByGroup.get(group.id);
-
             return (
               <Card key={group.id} className="overflow-hidden">
                 <CardHeader className="pb-3">
@@ -378,16 +407,6 @@ export default async function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-5">
-                  {/* Chirp of the Day */}
-                  {groupChirp && (
-                    <ChirpCard
-                      chirp={{
-                        text: groupChirp.text,
-                        generatedAt: groupChirp.generatedAt.toISOString(),
-                      }}
-                    />
-                  )}
-
                   {/* Your Matchups */}
                   <div>
                     <h3 className="text-sm font-semibold mb-2">
@@ -705,32 +724,40 @@ function PlayoffScheduleCard({
   games: GameWithTeams[];
   myDraftedTeamIds: Set<string>;
 }) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Bucket by Eastern Time day, since the audience is US-based and a game's
+  // "night" should align with the local viewing day (e.g. 11:30 PM ET game
+  // is "tonight", not "tomorrow morning UTC").
+  const ymdInET = (d: Date) =>
+    d.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+  const todayET = ymdInET(new Date());
+  const yesterdayET = ymdInET(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const tomorrowET = ymdInET(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
   const buckets = new Map<string, GameWithTeams[]>();
 
   for (const g of games) {
-    const startLocal = new Date(g.startTime);
-    const dayLocal = new Date(
-      startLocal.getFullYear(),
-      startLocal.getMonth(),
-      startLocal.getDate()
-    );
-    const diffDays = Math.round(
-      (dayLocal.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)
-    );
+    const gameYmdET = ymdInET(new Date(g.startTime));
 
     let label: string;
-    if (diffDays === -1) label = "Last night";
-    else if (diffDays === 0) label = "Today";
-    else if (diffDays === 1) label = "Tomorrow";
-    else if (diffDays > 1 && diffDays <= 6) {
-      label = startLocal.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "short",
-        day: "numeric",
-      });
-    } else continue; // skip games outside the window
+    if (gameYmdET === yesterdayET) label = "Last night";
+    else if (gameYmdET === todayET) label = "Today";
+    else if (gameYmdET === tomorrowET) label = "Tomorrow";
+    else {
+      // Future days within the 7-day window
+      const gameDay = new Date(gameYmdET + "T12:00:00Z"); // noon to avoid TZ edge cases
+      const todayDay = new Date(todayET + "T12:00:00Z");
+      const diffDays = Math.round(
+        (gameDay.getTime() - todayDay.getTime()) / (24 * 60 * 60 * 1000)
+      );
+      if (diffDays > 1 && diffDays <= 6) {
+        label = new Date(g.startTime).toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+          timeZone: "America/New_York",
+        });
+      } else continue;
+    }
 
     if (!buckets.has(label)) buckets.set(label, []);
     buckets.get(label)!.push(g);
@@ -786,12 +813,18 @@ function PlayoffScheduleCard({
                         const involvesMyTeam =
                           myDraftedTeamIds.has(g.homeTeamId) ||
                           myDraftedTeamIds.has(g.awayTeamId);
-                        const startTimeLabel = new Date(
-                          g.startTime
-                        ).toLocaleTimeString("en-US", {
+                        const startDate = new Date(g.startTime);
+                        const etTime = startDate.toLocaleTimeString("en-US", {
                           hour: "numeric",
                           minute: "2-digit",
+                          timeZone: "America/New_York",
                         });
+                        const ctTime = startDate.toLocaleTimeString("en-US", {
+                          hour: "numeric",
+                          minute: "2-digit",
+                          timeZone: "America/Chicago",
+                        });
+                        const startTimeLabel = `${etTime} ET / ${ctTime} CT`;
 
                         return (
                           <div
